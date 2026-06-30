@@ -1,53 +1,55 @@
-# Octopus Scout — 架构与技术说明
+**English** | [简体中文](ARCHITECTURE.zh-CN.md)
 
-> Octoryn Web Ingestion Engine — 一个**可治理、可审计、AI-native** 的网页/PDF/文档摄取管道。
+# Octopus Scout — Architecture & Technical Notes
+
+> Octoryn Web Ingestion Engine — a **governable, auditable, AI-native** pipeline for ingesting web pages / PDFs / documents.
 >
-> 版本快照：9 轮迭代完成。53 个源文件 / ~11.2k 行 TypeScript，39 个测试文件，**246 测试通过 + 6 个 key/DB-gated 集成测试（按需 skip）**，`tsc` 严格模式零错误，生产构建（`tsc` emit，含 `.d.ts`）通过。
+> Version snapshot: 9 iterations complete. 53 source files / ~11.2k lines of TypeScript, 39 test files, **246 tests passing + 6 key/DB-gated integration tests (skipped on demand)**, zero errors under `tsc` strict mode, production build (`tsc` emit, including `.d.ts`) passing.
 
 ---
 
-## 1. 定位
+## 1. Positioning
 
-Firecrawl 的定位是 **“把网页变成 LLM-ready 的 Markdown”**。Octopus Scout 的定位更进一步：
+Firecrawl positions itself as **"turning web pages into LLM-ready Markdown."** Octopus Scout goes one step further:
 
-> **“让网页内容受控地进入一个可治理的知识系统。”**
+> **"Let web content enter a governable knowledge system in a controlled way."**
 
-差异不在“抓得多猛”，而在**抓进来之后**：每一份内容都带着证据锚点、信任评分、治理决策、版本快照，可被检索、可被审计、可被审批、可被保留清理、可触发通知。第一版有意聚焦“正常的 80% 网站”，不与反爬/隐身/代理池正面竞争。
+The difference isn't "how aggressively you crawl," but **what happens after content comes in**: every piece of content carries evidence anchors, a trust score, governance decisions, and version snapshots, and can be retrieved, audited, approved, retention-cleaned, and used to trigger notifications. The first version deliberately focuses on the "normal 80% of websites" and does not compete head-on on anti-bot / stealth / proxy pools.
 
-### 设计原则
+### Design Principles
 
-1. **优雅降级（degrade gracefully）** —— 没有 Redis/Postgres/API key 时，自动回落到内嵌 SQLite / 内存 / 确定性 stub，永不在 import 期抛错。单机零依赖（clone-and-run）即可跑通全链路。
-2. **安全默认（secure by default）** —— SSRF 防护、内容大小/类型上限、robots 尊重、敏感域闸门默认开启。
-3. **治理优先（governance-first）** —— 信任评分、审计流水、人工审批、per-domain 策略是一等公民，而非事后补丁。
-4. **可插拔后端** —— 存储/向量库/embedding/限速 都是接口 + 多实现（SQLite ↔ File ↔ Postgres，stub ↔ Voyage/OpenAI，内存 ↔ Redis）。
-5. **多入口同源** —— HTTP API、CLI、MCP server 共享同一条管道，行为一致。
+1. **Degrade gracefully** — when Redis/Postgres/API keys are absent, it automatically falls back to embedded SQLite / in-memory / deterministic stubs, and never throws during import. A single machine with zero dependencies (clone-and-run) can run the full pipeline.
+2. **Secure by default** — SSRF protection, content size/type limits, robots compliance, and sensitive-domain gating are on by default.
+3. **Governance-first** — trust scoring, audit trails, human approval, and per-domain policies are first-class citizens, not afterthoughts.
+4. **Pluggable backends** — storage / vector store / embedding / rate limiting are all interfaces + multiple implementations (SQLite ↔ File ↔ Postgres, stub ↔ Voyage/OpenAI, in-memory ↔ Redis).
+5. **Shared core across entry points** — the HTTP API, CLI, and MCP server share the same pipeline and behave consistently.
 
 ---
 
-## 2. 系统架构
+## 2. System Architecture
 
 ```mermaid
 flowchart TD
-    IN[URL 输入] --> GUARD{SSRF 守卫<br/>+ robots + 限速}
-    GUARD -->|拒绝私网/元数据IP| BLOCK[UrlNotAllowedError]
-    GUARD --> FETCH[Fetcher 静态抓取<br/>内容大小/类型限制 + 字符集解码]
-    GUARD --> RENDER[Browser Renderer<br/>池化 Chromium]
+    IN[URL input] --> GUARD{SSRF guard<br/>+ robots + rate limit}
+    GUARD -->|reject private/metadata IP| BLOCK[UrlNotAllowedError]
+    GUARD --> FETCH[Fetcher static fetch<br/>content size/type limits + charset decode]
+    GUARD --> RENDER[Browser Renderer<br/>pooled Chromium]
     FETCH --> EXTRACT
-    RENDER --> EXTRACT[内容抽取<br/>Readability + 表格/图片/链接]
-    EXTRACT --> NORM[Markdown / JSON 规范化<br/>Turndown]
-    NORM --> EVID[Evidence + 引用锚点<br/>contentHash · trustScore]
-    EVID --> GOV[治理<br/>敏感域闸门 · per-domain 策略<br/>审计 · 人工审批]
-    GOV --> CACHE[缓存 / 哈希去重 / 版本快照]
-    CACHE --> KNOW[知识管线<br/>分块 · embedding · 向量库]
-    KNOW --> RET[检索 /search<br/>带引用 + 治理状态]
-    GOV -.事件.-> BUS[事件总线]
-    KNOW -.事件.-> BUS
-    BUS --> HOOK[签名 Webhook]
-    SCHED[定时调度器] -.staleness sweep.-> CACHE
-    CRAWL[Crawler<br/>BFS · 深度 · 续爬] --> GUARD
+    RENDER --> EXTRACT[Content extraction<br/>Readability + tables/images/links]
+    EXTRACT --> NORM[Markdown / JSON normalization<br/>Turndown]
+    NORM --> EVID[Evidence + citation anchors<br/>contentHash · trustScore]
+    EVID --> GOV[Governance<br/>sensitive-domain gating · per-domain policy<br/>audit · human approval]
+    GOV --> CACHE[Cache / hash dedup / version snapshots]
+    CACHE --> KNOW[Knowledge pipeline<br/>chunking · embedding · vector store]
+    KNOW --> RET[Retrieval /search<br/>with citations + governance status]
+    GOV -.event.-> BUS[Event bus]
+    KNOW -.event.-> BUS
+    BUS --> HOOK[Signed Webhook]
+    SCHED[Scheduler] -.staleness sweep.-> CACHE
+    CRAWL[Crawler<br/>BFS · depth · resume] --> GUARD
     CRAWL --> KNOW
 
-    subgraph 入口
+    subgraph Entry points
       API[HTTP API / Fastify]
       CLI[CLI / commander]
       MCP[MCP server]
@@ -57,238 +59,238 @@ flowchart TD
     MCP --> IN
 ```
 
-### 模块映射（`src/`）
+### Module Map (`src/`)
 
-| 层              | 文件                                                                           | 职责                                                                   |
-| --------------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
-| **入口**        | `server.ts` · `cli.ts` · `mcp.ts`                                              | Fastify HTTP / commander CLI / MCP stdio，三者复用同一管道             |
-| **抓取**        | `fetcher/httpFetcher.ts` · `browser/browserPool.ts`                            | 静态 fetch（带 SSRF/限制/限速）/ 池化 Playwright 渲染                  |
-| **安全**        | `fetcher/urlGuard.ts` · `fetcher/content.ts` · `auth.ts`                       | SSRF 守卫 / 内容大小·类型·字符集 / API-key 鉴权                        |
-| **礼貌**        | `fetcher/robots.ts` · `fetcher/rateLimiter.ts`                                 | robots.txt + crawl-delay / 分布式 per-domain 限速                      |
-| **爬取**        | `crawl/crawler.ts` · `crawl/crawlStore.ts`                                     | BFS 深度爬 + sitemap 种子 + 过滤 / 任务持久化与续爬                    |
-| **抽取**        | `extract/*` · `sitemap.ts`                                                     | Readability 正文、表格、图片、HTML→MD、PDF→MD / sitemap 解析           |
-| **证据/治理**   | `evidence/evidenceBuilder.ts` · `governance/*`                                 | 引用锚点·信任分 / 审计·审批·per-domain 策略                            |
-| **存储**        | `storage/sqlite.ts` · `storage/snapshotStore.ts` · `storage/retention.ts`      | 共享 SQLite 连接 / 快照·去重·版本（SQLite 默认 · File · PG）/ 保留清理 |
-| **知识**        | `knowledge/{chunking,embedding,ragExport,vectorStore,retrieval,siteIngest}.ts` | 分块 · embedding · RAG 导出 · 向量库 · 检索 · 整站入库                 |
-| **事件/自动化** | `events/{eventBus,webhooks}.ts` · `schedule/scheduler.ts`                      | 事件总线 / 签名 webhook / 定时刷新                                     |
-| **队列**        | `queue/scrapeQueue.ts` · `worker.ts`                                           | BullMQ scrape/crawl 队列 + 死信队列 + 失败分类                         |
-| **可观测**      | `metrics.ts` · `health.ts`                                                     | 计数指标（JSON/Prometheus）/ 就绪探针                                  |
-| **基础**        | `config.ts` · `types.ts` · `utils/*`                                           | zod 配置 / 共享类型 / url·hash 工具                                    |
-
----
-
-## 3. 技术栈
-
-- **运行时**：Node ≥ 22，TypeScript（ESM / NodeNext，`strict`）
-- **HTTP**：Fastify + `@fastify/cors`
-- **浏览器**：Playwright（Chromium，池化）
-- **抽取**：`@mozilla/readability` + `jsdom`，`turndown`（HTML→MD），`pdf-parse`（PDF→MD/表格）
-- **队列**：BullMQ + Redis（可选）
-- **存储**：内嵌 SQLite（`better-sqlite3`，默认，单文件零依赖）/ 本地 JSON 文件（`file` 回落）/ PostgreSQL + pgvector（可选，设 `DATABASE_URL`）
-- **限速/事件锁**：`ioredis`（可选）/ 进程内（默认）
-- **embedding**：Voyage / OpenAI（凭 key）/ 确定性 stub（默认，离线）
-- **校验**：`zod`（所有外部输入在边界处解析）
-- **MCP**：`@modelcontextprotocol/sdk`
-- **测试**：Vitest（hermetic，本地 http fixture，临时目录）
-- **部署**：Docker + docker-compose（api / worker / redis / postgres）
+| Layer                   | Files                                                                          | Responsibility                                                                                      |
+| ----------------------- | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| **Entry points**        | `server.ts` · `cli.ts` · `mcp.ts`                                              | Fastify HTTP / commander CLI / MCP stdio — all three reuse the same pipeline                        |
+| **Fetching**            | `fetcher/httpFetcher.ts` · `browser/browserPool.ts`                            | Static fetch (with SSRF/limits/rate limiting) / pooled Playwright rendering                         |
+| **Security**            | `fetcher/urlGuard.ts` · `fetcher/content.ts` · `auth.ts`                       | SSRF guard / content size·type·charset / API-key authentication                                     |
+| **Politeness**          | `fetcher/robots.ts` · `fetcher/rateLimiter.ts`                                 | robots.txt + crawl-delay / distributed per-domain rate limiting                                     |
+| **Crawling**            | `crawl/crawler.ts` · `crawl/crawlStore.ts`                                     | BFS depth crawl + sitemap seeds + filtering / job persistence and resumable crawls                  |
+| **Extraction**          | `extract/*` · `sitemap.ts`                                                     | Readability main content, tables, images, HTML→MD, PDF→MD / sitemap parsing                         |
+| **Evidence/Governance** | `evidence/evidenceBuilder.ts` · `governance/*`                                 | Citation anchors·trust score / audit·approval·per-domain policy                                     |
+| **Storage**             | `storage/sqlite.ts` · `storage/snapshotStore.ts` · `storage/retention.ts`      | Shared SQLite connection / snapshot·dedup·versions (SQLite default · File · PG) / retention cleanup |
+| **Knowledge**           | `knowledge/{chunking,embedding,ragExport,vectorStore,retrieval,siteIngest}.ts` | Chunking · embedding · RAG export · vector store · retrieval · whole-site ingest                    |
+| **Events/Automation**   | `events/{eventBus,webhooks}.ts` · `schedule/scheduler.ts`                      | Event bus / signed webhooks / scheduled refresh                                                     |
+| **Queue**               | `queue/scrapeQueue.ts` · `worker.ts`                                           | BullMQ scrape/crawl queue + dead-letter queue + failure classification                              |
+| **Observability**       | `metrics.ts` · `health.ts`                                                     | Counter metrics (JSON/Prometheus) / readiness probe                                                 |
+| **Foundation**          | `config.ts` · `types.ts` · `utils/*`                                           | zod config / shared types / url·hash utilities                                                      |
 
 ---
 
-## 4. 端到端数据流（以 `/scrape` 为例）
+## 3. Tech Stack
 
-1. **规范化 + SSRF 守卫**：`normalizeUrl` → `assertUrlAllowed`（拒绝非 http(s)、解析后落在私网/环回/链路本地/元数据 IP 的主机，防 DNS-rebinding）。
-2. **缓存命中检查**：TTL 内、请求形态兼容 → 直接返回快照。
-3. **robots + 限速**：`canFetchUrl`（同时把 robots `crawl-delay` 喂给限速器）；`waitForDomainSlot` 按域名（含 per-domain 策略覆盖）排队。
-4. **抓取**：静态 `fetch`（`content-length` 预检 → 类型白名单 → 流式封顶读取 → 字符集解码）或 `auto` 判定后用池化浏览器渲染。
-5. **抽取**：Readability 提正文 → Turndown 转 Markdown；额外抽表格/图片(alt/caption)/链接；PDF 走 `pdf-parse`。
-6. **证据**：`contentHash = sha256(markdown)`、按段落生成 `CitationAnchor`（带字符偏移）、`trustScore`（https/gov-edu/canonical/metadata/篇幅）。
-7. **治理**：敏感关键词 → `requires_approval`；`applyPolicy` 叠加 per-domain 策略（仅升级不降级）+ 信任覆盖。
-8. **去重 + 持久化**：`findByHash` 命中 → 复用旧快照（`cache.dedup`）；否则 `save` 新版本。
-9. **副作用（best-effort）**：写审计事件；`requires_approval` 且非重复 → 建 pending 审批；`emitEvent` → webhook；`recordX` 指标递增。
-
-`/crawl` 在外层套一个 BFS frontier（深度、并发、同源/正则过滤、sitemap 种子、每 N 页 checkpoint 到 `crawlStore` 以支持续爬），每个 URL 复用上面的 `scrapeUrl`。`/ingest` / `/ingest-site` 在 scrape 之后接上 **分块 → embedding → 向量库** 写路径；`/search` 走 **query embedding → 向量检索 → 带引用返回** 读路径。
-
----
-
-## 5. 关键数据模型（`src/types.ts`）
-
-- **`ScrapeResult`** — `{ request, fetch, extraction, evidence, cache:{hit, snapshotId, dedup} }`，一次抓取的完整结果。
-- **`EvidenceBundle`** — `{ contentHash, anchors:CitationAnchor[], trust:SourceTrustScore, governance:GovernanceDecision, capturedAt }`，可审计的“证据”。
-- **`CitationAnchor`** — `{ id, sourceUrl, textQuote, markdownOffset }`，把每段文本钉回原文，支撑引用。
-- **`GovernanceDecision`** — `{ status: allowed|blocked|requires_approval, reasons[], policyVersion }`。
-- **`SnapshotRecord` / `SnapshotSummary`** — 版本快照（按 url 保留历史，可查 `listVersionsByUrl`）。
-- **`Chunk` / `StoredChunk`** — 分块（headingPath、charStart/End、anchorId）/ 入库向量条目（含 embedding、trustScore、governanceStatus）。
-- **`VectorSearchHit` / `VectorSearchResult`** — 带分数 + 源 + 引用锚点 + 治理状态的检索结果。
-- **`AuditEvent` / `ApprovalRecord`** — 追加式审计流水 / 审批工单。
-- **`CrawlJobState` / `CrawlJobSummary`** — 可续爬的爬虫任务状态（frontier、visited、pages）。
-- **`ScoutEvent` / `WebhookDelivery`** — 内部事件 / webhook 投递记录。
-- **`MetricsSnapshot` / `ReadinessReport` / `RetentionReport` / `StalenessSweepResult`** — 运维数据结构。
+- **Runtime**: Node ≥ 22, TypeScript (ESM / NodeNext, `strict`)
+- **HTTP**: Fastify + `@fastify/cors`
+- **Browser**: Playwright (Chromium, pooled)
+- **Extraction**: `@mozilla/readability` + `jsdom`, `turndown` (HTML→MD), `pdf-parse` (PDF→MD/tables)
+- **Queue**: BullMQ + Redis (optional)
+- **Storage**: embedded SQLite (`better-sqlite3`, default, single-file zero-dependency) / local JSON files (`file` fallback) / PostgreSQL + pgvector (optional, set `DATABASE_URL`)
+- **Rate limiting/event locks**: `ioredis` (optional) / in-process (default)
+- **embedding**: Voyage / OpenAI (with key) / deterministic stub (default, offline)
+- **Validation**: `zod` (all external input is parsed at the boundary)
+- **MCP**: `@modelcontextprotocol/sdk`
+- **Testing**: Vitest (hermetic, local http fixtures, temp directories)
+- **Deployment**: Docker + docker-compose (api / worker / redis / postgres)
 
 ---
 
-## 6. 接口面
+## 4. End-to-End Data Flow (using `/scrape` as an example)
 
-**HTTP（30 路由，Fastify）**
+1. **Normalization + SSRF guard**: `normalizeUrl` → `assertUrlAllowed` (rejects non-http(s), and hosts whose resolved IP lands in private/loopback/link-local/metadata ranges, guarding against DNS rebinding).
+2. **Cache hit check**: within TTL and with compatible request shape → return the snapshot directly.
+3. **robots + rate limiting**: `canFetchUrl` (also feeds the robots `crawl-delay` to the rate limiter); `waitForDomainSlot` queues per domain (including per-domain policy overrides).
+4. **Fetching**: static `fetch` (`content-length` precheck → type allowlist → streamed capped read → charset decoding), or pooled browser rendering after an `auto` determination.
+5. **Extraction**: Readability extracts main content → Turndown converts to Markdown; additionally extracts tables/images (alt/caption)/links; PDFs go through `pdf-parse`.
+6. **Evidence**: `contentHash = sha256(markdown)`, per-paragraph `CitationAnchor` (with character offsets), `trustScore` (https/gov-edu/canonical/metadata/length).
+7. **Governance**: sensitive keywords → `requires_approval`; `applyPolicy` layers on the per-domain policy (escalate only, never downgrade) + trust overrides.
+8. **Dedup + persistence**: `findByHash` hit → reuse the old snapshot (`cache.dedup`); otherwise `save` a new version.
+9. **Side effects (best-effort)**: write the audit event; if `requires_approval` and not a duplicate → create a pending approval; `emitEvent` → webhook; `recordX` increments metrics.
 
-| 分组      | 端点                                                                                                                                                                                      |
-| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 抓取      | `POST /scrape` `/fetch` `/render` `/sitemap` `/crawl` `/jobs/scrape` `/jobs/crawl` `GET /crawls` `/crawls/:id`                                                                            |
-| 知识      | `POST /export` `/ingest` `/ingest-site` `/search` `GET /versions?url=` `/snapshots/:id`                                                                                                   |
-| 治理/运维 | `GET /governance/approvals[/:id]` `POST /governance/approvals/:id/decision` `GET /audit` `POST /admin/retention` `/admin/refresh` `GET /events` `/webhooks` `/metrics` `/ready` `/health` |
-
-**CLI（18 命令）**：`scrape` `fetch` `render` `sitemap` `map` `crawl` `crawls` `export` `ingest` `ingest-site` `search` `extract` `retention` `refresh` `job` `approvals` `approve` `reject`
-
-**MCP（8 工具）**：`octoryn_scrape` `octoryn_crawl` `octoryn_map` `octoryn_export` `octoryn_ingest` `octoryn_ingest_site` `octoryn_search` `octoryn_extract`
-
-鉴权：`authMode=write` 保护所有写请求 + `/governance` `/audit` `/admin`；`all` 保护除 `GET /health` 外一切。
+`/crawl` wraps a BFS frontier on the outside (depth, concurrency, same-origin/regex filtering, sitemap seeds, checkpoint to `crawlStore` every N pages to support resumable crawls), with each URL reusing the `scrapeUrl` above. `/ingest` / `/ingest-site` append the **chunk → embedding → vector store** write path after scraping; `/search` runs the **query embedding → vector retrieval → return with citations** read path.
 
 ---
 
-## 7. 实现了什么 · 做到了什么 · 解决了什么
+## 5. Key Data Models (`src/types.ts`)
 
-按五轮迭代组织（每轮均经独立复跑 + 真实站点端到端实测）：
-
-### R1 — 主干补全
-
-**实现**：深度 crawl（BFS/sitemap 种子/过滤）、RAG 导出（分块+引用+JSONL）、内容哈希去重、版本快照、治理审计+人工审批、池化浏览器、分布式限速、死信队列+失败分类。
-**解决**：把“单页转 Markdown”补成“可批量、可去重、可追溯版本、抓取失败可归因”的管道。
-
-### R2 — 闭合 RAG 检索环路
-
-**实现**：真实 embedding（Voyage/OpenAI + stub 兜底）、向量库（File cosine / PG jsonb）、`/ingest`+`/search`、per-domain 治理策略、API-key 鉴权。
-**做到**：`scrape → 治理 → 分块 → embedding → 向量库 → 带引用检索` 的完整 RAG 读写闭环。
-**解决**：Firecrawl 只给你 Markdown，向量库要自己搭；这里**内建检索**，开箱即用。
-
-### R3 — 安全与健壮性硬化
-
-**实现**：SSRF 守卫（查解析后 IP，防 rebinding）、内容大小/类型上限 + 字符集解码、robots crawl-delay 接入、`/metrics`+`/ready`。
-**解决**：一个接受任意 URL 的服务最致命的洞——**SSRF**（打内网/云元数据）和**资源耗尽**（超大响应）——被默认堵上。
-
-### R4 — 知识库规模化运维
-
-**实现**：整站入库（crawl→index）、crawl 断点续爬（持久化 frontier）、版本/审计/审批保留清理。
-**解决**：大型站点爬到一半中断可续；快照/审计无限增长可治理。
-
-### R5 — 事件化与自动化
-
-**实现**：内部事件总线、HMAC 签名 webhook（重试+投递日志）、定时 staleness 刷新。
-**做到**：`approval.requested` 事件可经 webhook 直接 page 审批人——**人在环治理从“排队等人看”升级到“主动通知”**；知识库可自动保鲜。
-
-### 贯穿全局解决的问题
-
-- **可审计**：每次抓取/审批/决策都进追加式审计流水。
-- **可治理**：信任评分 + 敏感域闸门 + per-domain 策略 + 人工审批，医疗/法律/金融内容默认需审批。
-- **可引用**：每个 chunk 钉回原文锚点与字符偏移，RAG 答案可溯源。
-- **可运维**：指标、就绪探针、保留清理、死信队列、断点续爬。
-- **零依赖起步**：无 Redis/PG/key 也能单机跑通全链路。
+- **`ScrapeResult`** — `{ request, fetch, extraction, evidence, cache:{hit, snapshotId, dedup} }`, the complete result of a single scrape.
+- **`EvidenceBundle`** — `{ contentHash, anchors:CitationAnchor[], trust:SourceTrustScore, governance:GovernanceDecision, capturedAt }`, the auditable "evidence."
+- **`CitationAnchor`** — `{ id, sourceUrl, textQuote, markdownOffset }`, pins each piece of text back to the source to support citations.
+- **`GovernanceDecision`** — `{ status: allowed|blocked|requires_approval, reasons[], policyVersion }`.
+- **`SnapshotRecord` / `SnapshotSummary`** — version snapshots (history retained per url, queryable via `listVersionsByUrl`).
+- **`Chunk` / `StoredChunk`** — chunks (headingPath, charStart/End, anchorId) / stored vector entries (including embedding, trustScore, governanceStatus).
+- **`VectorSearchHit` / `VectorSearchResult`** — retrieval results with score + source + citation anchors + governance status.
+- **`AuditEvent` / `ApprovalRecord`** — append-only audit trail / approval tickets.
+- **`CrawlJobState` / `CrawlJobSummary`** — resumable crawler job state (frontier, visited, pages).
+- **`ScoutEvent` / `WebhookDelivery`** — internal events / webhook delivery records.
+- **`MetricsSnapshot` / `ReadinessReport` / `RetentionReport` / `StalenessSweepResult`** — operational data structures.
 
 ---
 
-## 8. 与 Firecrawl 对标
+## 6. Interface Surface
 
-> 立场：诚实对标。Firecrawl 是成熟的托管式抓取平台，在**抓取能力与规模**上明显领先；Octopus Scout 是自托管的 MVP，在**治理与知识系统集成**上是它没有覆盖的方向。两者目标不同。
+**HTTP (30 routes, Fastify)**
 
-### 能力对照
+| Group          | Endpoints                                                                                                                                                                                 |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Scraping       | `POST /scrape` `/fetch` `/render` `/sitemap` `/crawl` `/jobs/scrape` `/jobs/crawl` `GET /crawls` `/crawls/:id`                                                                            |
+| Knowledge      | `POST /export` `/ingest` `/ingest-site` `/search` `GET /versions?url=` `/snapshots/:id`                                                                                                   |
+| Governance/Ops | `GET /governance/approvals[/:id]` `POST /governance/approvals/:id/decision` `GET /audit` `POST /admin/retention` `/admin/refresh` `GET /events` `/webhooks` `/metrics` `/ready` `/health` |
 
-| 维度                                       | Firecrawl                       | Octopus Scout                                                                                            |
-| ------------------------------------------ | ------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| 单页抓取 → Markdown                        | ✅ 成熟                         | ✅                                                                                                       |
-| 动态渲染（JS）                             | ✅                              | ✅ Playwright 池化                                                                                       |
-| 整站 crawl                                 | ✅ `/crawl`                     | ✅ BFS + **断点续爬**                                                                                    |
-| 快速 URL 发现                              | ✅ `/map`                       | ✅ `POST /map`（sitemap + 根页链接 + 过滤）                                                              |
-| PDF / 表格                                 | ✅                              | ✅                                                                                                       |
-| **隐身 / stealth**                         | ✅ 强                           | ✅ stealth-plus（零依赖手搓：webdriver/plugins/window.chrome/WebGL 伪装 + UA-CH + 隐藏 automation flag） |
-| **代理**                                   | ✅ 托管代理池                   | ⚠️ **BYO 代理**（轮换 + 手搓 CONNECT 隧道，零依赖）；**无托管代理池**（有意不做）                        |
-| **JS 挑战（Cloudflare 等）**               | ✅                              | ✅ 检测 + 浏览器等待挑战自解（非 CAPTCHA 类）                                                            |
-| **CAPTCHA 求解**                           | ✅                              | ⚠️ 仅 seam + Noop 占位（TODO）；求解须外接服务（有意不内置）                                             |
-| **对抗级反爬 / 顶级 bot 防护**             | ✅ **核心护城河**               | ❌ 不保证（有意不做对抗军备竞赛）                                                                        |
-| 抓取前交互（actions：点击/滚动/输入）      | ✅                              | ✅ `actions`（wait/waitForSelector/click/scroll/type/press/screenshot）                                  |
-| LLM 结构化抽取（`/extract` + schema）      | ✅                              | ✅ `POST /extract`（Anthropic SDK / OpenAI，schema 约束；OpenAI 已 live 验证）                           |
-| 混合检索（向量 + 关键词 + 重排序）         | ⚠️ 取决于自建                   | ✅ vector/lexical/**hybrid(RRF)** + 可插拔 rerank                                                        |
-| 内置 embedding + 向量检索                  | ❌（输出 Markdown，自备向量库） | ✅ **内建** `/ingest`+`/search`（pgvector / 文件 cosine）                                                |
-| Agent 直连（MCP）                          | ⚠️ 第三方封装                   | ✅ 原生 MCP server（Claude + Codex 配置就绪）                                                            |
-| 引用锚点 / 证据包                          | ❌                              | ✅ 每 chunk 回链原文                                                                                     |
-| 信任评分 / 来源策略                        | ❌                              | ✅ trustScore + per-domain 策略                                                                          |
-| **治理：审计流水 / 人工审批 / 敏感域闸门** | ❌                              | ✅ **核心差异化**                                                                                        |
-| 内容哈希去重 + 版本快照                    | ⚠️ change-tracking              | ✅ 去重 + 版本历史查询                                                                                   |
-| SSRF 防护（内建、默认）                    | —（托管侧承担）                 | ✅ 内建、默认开                                                                                          |
-| 事件 / 签名 webhook                        | ⚠️ 部分（crawl webhook）        | ✅ 通用事件总线 + HMAC 签名                                                                              |
-| 定时保鲜 / 保留清理                        | ⚠️                              | ✅ staleness sweep + retention                                                                           |
-| 鉴权                                       | ✅ API key（托管）              | ✅ API key（自托管，分级）                                                                               |
-| 规模 / 稳定性                              | ✅ 托管、久经考验               | ⚠️ MVP；队列就绪但未做大规模压测                                                                         |
-| 部署                                       | 托管 SaaS + 自托管开源          | 自托管（Docker Compose）                                                                                 |
-| SDK / 生态                                 | ✅ 丰富                         | ⚠️ HTTP + CLI + MCP                                                                                      |
+**CLI (18 commands)**: `scrape` `fetch` `render` `sitemap` `map` `crawl` `crawls` `export` `ingest` `ingest-site` `search` `extract` `retention` `refresh` `job` `approvals` `approve` `reject`
 
-### 一句话总结
+**MCP (8 tools)**: `octoryn_scrape` `octoryn_crawl` `octoryn_map` `octoryn_export` `octoryn_ingest` `octoryn_ingest_site` `octoryn_search` `octoryn_extract`
 
-- **要把任意网站（含强反爬）规模化、低运维地转成 Markdown** → Firecrawl 更合适。
-- **要把网页内容纳入一个自托管、可审计、带引用、可审批、自带检索的知识系统**（尤其医疗/法律/金融等合规敏感场景）→ Octopus Scout 提供 Firecrawl 没有覆盖的治理与知识层。
-
-### 关键取舍（R9 后修正）
-
-早期版本完全不碰反爬;R9 起补上了**零依赖、开源、自托管**的一层:stealth-plus(手搓反检测)+ BYO 代理(含手搓 CONNECT 隧道)+ Cloudflare JS 挑战等待 + `FetchProvider` 可插拔 seam。**有意止步于**:托管代理池、CAPTCHA 求解、对抗级 bot 防护的军备竞赛——这些要么需付费基建/外部服务,要么是永不收敛的维护负担,与"零依赖、可审计、可测试"的取向冲突;CAPTCHA/外部抓取后端都留了 seam,需要时接 BYO key 或第三方即可。
-
-诚实定位:**完整性已大幅补齐(不再是"残缺一块"),但顶级 bot 防护/CAPTCHA 站点不保证**。这是经过权衡的边界,不是疏漏——见对话记录中关于"为何不做对抗级反爬"的讨论。`FetchProvider` 让"硬目标外接专业抓取后端"从架构设想变成一行配置,而治理/证据/检索层始终是自己的。
+Authentication: `authMode=write` protects all write requests + `/governance` `/audit` `/admin`; `all` protects everything except `GET /health`.
 
 ---
 
-## 9. 验证状态（诚实标注）
+## 7. What Was Built · What Was Achieved · What Was Solved
 
-| 项                                    | 状态                                                                                                                                                     |
-| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tsc --noEmit` + 生产 `tsc` emit      | ✅ 零错误                                                                                                                                                |
-| 单元/集成测试                         | ✅ 158 通过 + 3 个 key-gated（按需） / 25 文件，连跑稳定                                                                                                 |
-| 端到端实测（真实站点 + 本地 fixture） | ✅ scrape/去重/治理、crawl、续爬、整站入库、search、SSRF 拦截、签名 webhook、metrics、staleness sweep                                                    |
-| **真实 embedding（OpenAI）线上验证**  | ✅ 1536 维、语义检索有效（top-5 全命中目标主题）。**Voyage 仅写了代码，未用真 key 跑过。**                                                               |
-| **pgvector（真实容器）**              | ✅ `vector(256)` + HNSW cosine，ingest→search 跑通；修复了 search-only 进程因 in-memory `tableReady` 早退导致 0 命中的真实 bug（含 DB-gated 回归测试）。 |
-| **持久队列（真实 Redis）**            | ✅ `/jobs/ingest-site` 入队 → worker 处理 → `/jobs/:id` 返回 `completed`。                                                                               |
-| **分布式锁（真实 Redis）**            | ✅ 同 key 并发：仅一个 acquire，另一个 `acquired:false`；释放后可再获取；无 Redis 时降级。                                                               |
-| **MCP（built bin）**                  | ✅ `node dist/mcp.js` 的 `tools/list` 返回全部工具。                                                                                                     |
-| **混合检索（offline）**               | ✅ stub 向量下 vector/lexical/hybrid 对比验证：BM25 命中含关键词的 chunk，RRF 融合分数符合预期，heuristic rerank 确定性。                                |
-| **LLM 结构化抽取（OpenAI live）**     | ✅ `gpt-4o-mini` 按 JSON Schema 抽取 Espresso 页 → 合规 JSON。**Anthropic 路径用官方 SDK 实现，但无 Anthropic key 未 live 验。**                         |
-| **/map（real site）**                 | ✅ quotes.toscrape.com 发现 48 URL，search 过滤生效。                                                                                                    |
-| **抓取前 actions（real chromium）**   | ✅ click 执行运行时 JS → DOM 出现仅运行时才有的 marker；screenshot action 产出截图。                                                                     |
-| **stealth（real chromium）**          | ✅ OFF=OctorynScout UA + webdriver:true；ON=真 Chrome UA + webdriver:undefined。                                                                         |
-| **stealth-plus（real chromium，R9）** | ✅ 页内实测:webdriver=false、window.chrome 存在、plugins=5、languages=[en-US,en]、WebGL vendor=Intel Inc.、hwc=8。零依赖手搓。                           |
-| **proxiedFetch CONNECT 隧道（R9）**   | ✅ 本地 CONNECT 代理 → 隧道到真实 https://example.com → TLS → 200/559 bytes/"Example Domain"。零依赖(node:net/tls)。                                     |
-| **零新增依赖（R9）**                  | ✅ anti-bot 模块仅 import node:/playwright/local；package.json deps 数未因 R9 增加。                                                                     |
-| 大规模压测 / 多实例并发               | ❌ 未做                                                                                                                                                  |
-| 反爬实站对抗                          | ❌ 不在范围                                                                                                                                              |
+Organized by five iterations (each independently re-run + tested end-to-end against real sites):
 
----
+### R1 — Backbone Completion
 
-## 10. 局限与路线图
+**Built**: depth crawl (BFS/sitemap seeds/filtering), RAG export (chunking + citations + JSONL), content-hash dedup, version snapshots, governance audit + human approval, pooled browser, distributed rate limiting, dead-letter queue + failure classification.
+**Solved**: grew "single-page to Markdown" into a pipeline that is "batchable, dedupable, version-traceable, and attributable on fetch failure."
 
-**存储三层（截至最新）**
+### R2 — Closing the RAG Retrieval Loop
 
-- **内嵌 SQLite（默认）** —— `storage/sqlite.ts` 管理单一 `octopus-scout.db`（WAL，共享连接，FTS5 全文）。五大 store 家族（snapshot · crawl · vector · lexical · governance/audit+approvals）均有 SQLite 实现，与 File 后端**逐字段对齐（parity）**。零外部依赖，clone-and-run。
-- **File（`OCTORYN_SCOUT_STORAGE_BACKEND=file`）** —— 纯 JSON 文件回落，便于人肉检视 / 调试。
-- **Postgres + pgvector（设 `DATABASE_URL`）** —— 大规模语料 / 多实例部署；`vector(dim)` + HNSW cosine。
-- 选择逻辑：`resolveStorageBackend()` —— 有 `DATABASE_URL` 走 Postgres；`backend=file` 走 File；否则（`auto`/`sqlite`）走 SQLite。
+**Built**: real embeddings (Voyage/OpenAI + stub fallback), vector store (File cosine / PG jsonb), `/ingest`+`/search`, per-domain governance policies, API-key authentication.
+**Achieved**: the complete RAG read/write loop of `scrape → governance → chunk → embedding → vector store → retrieval with citations`.
+**Solved**: Firecrawl only gives you Markdown, and you have to build the vector store yourself; here retrieval is **built in**, working out of the box.
 
-**已在 R6 解决**（live 验证，见下）
+### R3 — Security & Robustness Hardening
 
-- ✅ site-ingest 可作 **BullMQ 持久任务**（`/jobs/ingest-site` + `/jobs/:id`），失败入死信队列。
-- ✅ 定时调度器加了 **Redis 分布式锁**（`SET NX PX` + Lua compare-del），多实例不重复 sweep；无 Redis 时单实例 run-anyway。
-- ✅ **pgvector** 后端（`vector(dim)` + HNSW cosine `<=>`），扩展不可用时回落 jsonb。
-- ✅ **MCP server 打包给 Claude / Codex**：`octopus-scout-mcp` bin + `docs/mcp/` 配置 + `docs/MCP.md`。
+**Built**: SSRF guard (inspects the resolved IP, guards against rebinding), content size/type limits + charset decoding, robots crawl-delay integration, `/metrics`+`/ready`.
+**Solved**: the most fatal holes in a service that accepts arbitrary URLs — **SSRF** (hitting internal networks / cloud metadata) and **resource exhaustion** (oversized responses) — are plugged by default.
 
-**当前局限（截至 R9 + 质量复盘）**
+### R4 — Scaling Knowledge-Base Operations
 
-- pgvector 列维度在首次 upsert 时按向量长度锁定（换 embedding provider 需重建表）。
-- 未 live 验证（需外部 key/资源）：Voyage embedding、Anthropic 抽取、Cohere/Voyage rerank、大规模压测。
-- `proxiedFetch` 仅有 socket 空闲超时（无绝对截止），分块解码为 O(n²)——已知 DoS 韧性短板（punch-list）。
-- 未接入 ESLint（已加 Prettier + CI typecheck/test/format）；HTTP 路由层与核心 `scrapeUrl` 缺专测（服务函数覆盖充分）；无覆盖率门槛。
-- 反爬：仅 stealth-plus + BYO 代理 + JS 挑战等待；**顶级 bot 防护 / CAPTCHA 求解不保证**（有意，见 §8 与 docs/CAPTCHA.md）。
+**Built**: whole-site ingest (crawl→index), resumable crawls (persisted frontier), retention cleanup for versions/audit/approvals.
+**Solved**: large sites interrupted mid-crawl can be resumed; unbounded growth of snapshots/audit can be governed.
 
-**建议路线**
+### R5 — Eventing & Automation
 
-1. **生态**：TypeScript/Python SDK；LangChain/LlamaIndex retriever 适配。
-2. **抽取增强**：多页/整站 schema 抽取；抽取结果入库。
-3. **检索增强**：rerank live 验证（需 key）；查询改写 / HyDE。
-4. **质量补齐**：ESLint 接入 + 一次 lint 清理；HTTP 路由层测试（`app.inject`）+ `scrapeUrl` 专测 + 覆盖率门槛；`proxiedFetch` 绝对超时 + 增量分块解码。
-5. **Anthropic 抽取 live 验证**（需 Anthropic key）。
+**Built**: internal event bus, HMAC-signed webhooks (retries + delivery logs), scheduled staleness refresh.
+**Achieved**: an `approval.requested` event can page the approver directly via webhook — **human-in-the-loop governance is upgraded from "wait in a queue for someone to look" to "proactive notification"**; the knowledge base can auto-refresh.
+
+### Problems Solved Across the Board
+
+- **Auditable**: every scrape/approval/decision goes into the append-only audit trail.
+- **Governable**: trust scoring + sensitive-domain gating + per-domain policies + human approval; medical/legal/financial content requires approval by default.
+- **Citable**: every chunk is pinned back to source anchors and character offsets, so RAG answers are traceable.
+- **Operable**: metrics, readiness probe, retention cleanup, dead-letter queue, resumable crawls.
+- **Zero-dependency start**: the full pipeline runs on a single machine without Redis/PG/keys.
 
 ---
 
-_文档与实现对应 2026-06-30 的 5 轮迭代版本。后续如继续推进，请同步更新本档第 7、9、10 节。_
+## 8. Benchmarking Against Firecrawl
+
+> Stance: an honest comparison. Firecrawl is a mature managed scraping platform with a clear lead on **scraping capability and scale**; Octopus Scout is a self-hosted MVP whose direction — **governance and knowledge-system integration** — is one Firecrawl does not cover. The two have different goals.
+
+### Capability Comparison
+
+| Dimension                                                              | Firecrawl                               | Octopus Scout                                                                                                                  |
+| ---------------------------------------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Single-page scrape → Markdown                                          | ✅ Mature                               | ✅                                                                                                                             |
+| Dynamic rendering (JS)                                                 | ✅                                      | ✅ Playwright pooled                                                                                                           |
+| Whole-site crawl                                                       | ✅ `/crawl`                             | ✅ BFS + **resumable crawls**                                                                                                  |
+| Fast URL discovery                                                     | ✅ `/map`                               | ✅ `POST /map` (sitemap + root-page links + filtering)                                                                         |
+| PDF / tables                                                           | ✅                                      | ✅                                                                                                                             |
+| **Stealth**                                                            | ✅ Strong                               | ✅ stealth-plus (zero-dependency hand-rolled: webdriver/plugins/window.chrome/WebGL spoofing + UA-CH + hidden automation flag) |
+| **Proxy**                                                              | ✅ Managed proxy pool                   | ⚠️ **BYO proxy** (rotation + hand-rolled CONNECT tunnel, zero-dependency); **no managed proxy pool** (deliberately not built)  |
+| **JS challenges (Cloudflare, etc.)**                                   | ✅                                      | ✅ detection + browser waits out and self-solves the challenge (non-CAPTCHA type)                                              |
+| **CAPTCHA solving**                                                    | ✅                                      | ⚠️ seam + Noop placeholder only (TODO); solving requires an external service (deliberately not built in)                       |
+| **Adversarial anti-bot / top-tier bot protection**                     | ✅ **Core moat**                        | ❌ Not guaranteed (deliberately avoids the adversarial arms race)                                                              |
+| Pre-scrape interaction (actions: click/scroll/type)                    | ✅                                      | ✅ `actions` (wait/waitForSelector/click/scroll/type/press/screenshot)                                                         |
+| LLM structured extraction (`/extract` + schema)                        | ✅                                      | ✅ `POST /extract` (Anthropic SDK / OpenAI, schema-constrained; OpenAI live-verified)                                          |
+| Hybrid retrieval (vector + keyword + rerank)                           | ⚠️ Depends on your own build            | ✅ vector/lexical/**hybrid(RRF)** + pluggable rerank                                                                           |
+| Built-in embedding + vector retrieval                                  | ❌ (outputs Markdown, BYO vector store) | ✅ **built in** `/ingest`+`/search` (pgvector / file cosine)                                                                   |
+| Direct agent connection (MCP)                                          | ⚠️ Third-party wrappers                 | ✅ Native MCP server (Claude + Codex config ready)                                                                             |
+| Citation anchors / evidence bundle                                     | ❌                                      | ✅ Every chunk links back to source                                                                                            |
+| Trust scoring / source policy                                          | ❌                                      | ✅ trustScore + per-domain policy                                                                                              |
+| **Governance: audit trail / human approval / sensitive-domain gating** | ❌                                      | ✅ **Core differentiator**                                                                                                     |
+| Content-hash dedup + version snapshots                                 | ⚠️ change-tracking                      | ✅ dedup + version-history queries                                                                                             |
+| SSRF protection (built-in, default)                                    | — (handled on the managed side)         | ✅ Built in, on by default                                                                                                     |
+| Events / signed webhooks                                               | ⚠️ Partial (crawl webhook)              | ✅ General event bus + HMAC signing                                                                                            |
+| Scheduled refresh / retention cleanup                                  | ⚠️                                      | ✅ staleness sweep + retention                                                                                                 |
+| Authentication                                                         | ✅ API key (managed)                    | ✅ API key (self-hosted, tiered)                                                                                               |
+| Scale / stability                                                      | ✅ Managed, battle-tested               | ⚠️ MVP; queue-ready but no large-scale load testing                                                                            |
+| Deployment                                                             | Managed SaaS + self-hosted open source  | Self-hosted (Docker Compose)                                                                                                   |
+| SDK / ecosystem                                                        | ✅ Rich                                 | ⚠️ HTTP + CLI + MCP                                                                                                            |
+
+### One-Line Summary
+
+- **To turn arbitrary websites (including those with strong anti-bot) into Markdown at scale with low operational overhead** → Firecrawl is the better fit.
+- **To bring web content into a self-hosted, auditable, cited, approvable knowledge system with built-in retrieval** (especially for compliance-sensitive scenarios like medical/legal/financial) → Octopus Scout provides the governance and knowledge layers Firecrawl does not cover.
+
+### Key Trade-offs (revised after R9)
+
+Early versions avoided anti-bot entirely; from R9 onward a **zero-dependency, open-source, self-hosted** layer was added: stealth-plus (hand-rolled anti-detection) + BYO proxy (including a hand-rolled CONNECT tunnel) + Cloudflare JS challenge waiting + a pluggable `FetchProvider` seam. **Deliberately stops short of**: managed proxy pools, CAPTCHA solving, and the arms race of adversarial bot protection — these either require paid infrastructure / external services or are a never-converging maintenance burden, conflicting with the "zero-dependency, auditable, testable" orientation; both CAPTCHA and external fetch backends leave a seam, so you can plug in a BYO key or third party when needed.
+
+Honest positioning: **completeness has been substantially filled in (no longer "missing a piece"), but top-tier bot protection / CAPTCHA sites are not guaranteed**. This is a deliberate boundary, not an oversight — see the discussion in the conversation logs on "why not do adversarial anti-bot." `FetchProvider` turns "plug a professional scraping backend into hard targets" from an architectural idea into a one-line config, while the governance/evidence/retrieval layers always remain your own.
+
+---
+
+## 9. Verification Status (honestly labeled)
+
+| Item                                                  | Status                                                                                                                                                                                              |
+| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tsc --noEmit` + production `tsc` emit                | ✅ Zero errors                                                                                                                                                                                      |
+| Unit/integration tests                                | ✅ 158 passing + 3 key-gated (on demand) / 25 files, stable across re-runs                                                                                                                          |
+| End-to-end tests (real sites + local fixtures)        | ✅ scrape/dedup/governance, crawl, resume, whole-site ingest, search, SSRF blocking, signed webhook, metrics, staleness sweep                                                                       |
+| **Real embedding (OpenAI) live verification**         | ✅ 1536 dimensions, semantic retrieval effective (top-5 all hit the target topic). **Voyage is code-only, never run with a real key.**                                                              |
+| **pgvector (real container)**                         | ✅ `vector(256)` + HNSW cosine, ingest→search works; fixed a real bug where the search-only process returned 0 hits due to in-memory `tableReady` early-exit (includes a DB-gated regression test). |
+| **Persistent queue (real Redis)**                     | ✅ `/jobs/ingest-site` enqueued → worker processed → `/jobs/:id` returns `completed`.                                                                                                               |
+| **Distributed lock (real Redis)**                     | ✅ Concurrent on the same key: only one acquires, the other gets `acquired:false`; reacquirable after release; degrades when no Redis.                                                              |
+| **MCP (built bin)**                                   | ✅ `tools/list` from `node dist/mcp.js` returns all tools.                                                                                                                                          |
+| **Hybrid retrieval (offline)**                        | ✅ Compared vector/lexical/hybrid under stub vectors: BM25 hits chunks containing the keyword, RRF fusion scores match expectations, heuristic rerank deterministic.                                |
+| **LLM structured extraction (OpenAI live)**           | ✅ `gpt-4o-mini` extracts the Espresso page per JSON Schema → compliant JSON. **The Anthropic path is implemented with the official SDK, but not live-verified without an Anthropic key.**          |
+| **/map (real site)**                                  | ✅ quotes.toscrape.com discovered 48 URLs, search filtering effective.                                                                                                                              |
+| **Pre-scrape actions (real chromium)**                | ✅ click runs runtime JS → a runtime-only marker appears in the DOM; the screenshot action produces a screenshot.                                                                                   |
+| **stealth (real chromium)**                           | ✅ OFF=OctorynScout UA + webdriver:true; ON=real Chrome UA + webdriver:undefined.                                                                                                                   |
+| **stealth-plus (real chromium, R9)**                  | ✅ In-page verified: webdriver=false, window.chrome present, plugins=5, languages=[en-US,en], WebGL vendor=Intel Inc., hwc=8. Hand-rolled, zero-dependency.                                         |
+| **proxiedFetch CONNECT tunnel (R9)**                  | ✅ Local CONNECT proxy → tunnel to real https://example.com → TLS → 200/559 bytes/"Example Domain". Zero-dependency (node:net/tls).                                                                 |
+| **Zero new dependencies (R9)**                        | ✅ The anti-bot module only imports node:/playwright/local; the package.json deps count did not increase due to R9.                                                                                 |
+| Large-scale load testing / multi-instance concurrency | ❌ Not done                                                                                                                                                                                         |
+| Real-site anti-bot adversarial testing                | ❌ Out of scope                                                                                                                                                                                     |
+
+---
+
+## 10. Limitations & Roadmap
+
+**Three storage tiers (as of latest)**
+
+- **Embedded SQLite (default)** — `storage/sqlite.ts` manages a single `octopus-scout.db` (WAL, shared connection, FTS5 full-text). All five store families (snapshot · crawl · vector · lexical · governance/audit+approvals) have SQLite implementations, **field-for-field parity** with the File backend. Zero external dependencies, clone-and-run.
+- **File (`OCTORYN_SCOUT_STORAGE_BACKEND=file`)** — plain JSON file fallback, convenient for manual inspection / debugging.
+- **Postgres + pgvector (set `DATABASE_URL`)** — large-scale corpora / multi-instance deployment; `vector(dim)` + HNSW cosine.
+- Selection logic: `resolveStorageBackend()` — with `DATABASE_URL`, use Postgres; with `backend=file`, use File; otherwise (`auto`/`sqlite`), use SQLite.
+
+**Already solved in R6** (live-verified, see below)
+
+- ✅ site-ingest can run as a **BullMQ persistent job** (`/jobs/ingest-site` + `/jobs/:id`), with failures going to the dead-letter queue.
+- ✅ The scheduler gained a **Redis distributed lock** (`SET NX PX` + Lua compare-del), so multiple instances don't sweep redundantly; with no Redis it runs anyway as a single instance.
+- ✅ **pgvector** backend (`vector(dim)` + HNSW cosine `<=>`), falling back to jsonb when the extension is unavailable.
+- ✅ **MCP server packaged for Claude / Codex**: `octopus-scout-mcp` bin + `docs/mcp/` config + `docs/MCP.md`.
+
+**Current limitations (as of R9 + quality review)**
+
+- The pgvector column dimension is locked to the vector length on the first upsert (switching embedding providers requires rebuilding the table).
+- Not live-verified (requires external keys/resources): Voyage embedding, Anthropic extraction, Cohere/Voyage rerank, large-scale load testing.
+- `proxiedFetch` has only a socket idle timeout (no absolute deadline), and chunk decoding is O(n²) — known DoS-resilience weaknesses (punch-list).
+- ESLint not yet integrated (Prettier + CI typecheck/test/format already added); the HTTP route layer and core `scrapeUrl` lack dedicated tests (service functions are well covered); no coverage threshold.
+- Anti-bot: only stealth-plus + BYO proxy + JS challenge waiting; **top-tier bot protection / CAPTCHA solving not guaranteed** (deliberate, see §8 and docs/CAPTCHA.md).
+
+**Suggested Roadmap**
+
+1. **Ecosystem**: TypeScript/Python SDK; LangChain/LlamaIndex retriever adapters.
+2. **Extraction enhancements**: multi-page/whole-site schema extraction; store extraction results.
+3. **Retrieval enhancements**: rerank live verification (requires key); query rewriting / HyDE.
+4. **Quality fill-in**: integrate ESLint + a one-time lint cleanup; HTTP route-layer tests (`app.inject`) + dedicated `scrapeUrl` tests + a coverage threshold; `proxiedFetch` absolute timeout + incremental chunk decoding.
+5. **Anthropic extraction live verification** (requires an Anthropic key).
+
+---
+
+_This document corresponds to the 5-iteration version of the implementation as of 2026-06-30. If work continues, please keep sections 7, 9, and 10 of this document in sync._

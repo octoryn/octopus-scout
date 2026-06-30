@@ -1,7 +1,9 @@
+**English** | [简体中文](CAPTCHA.zh-CN.md)
+
 # CAPTCHA — Integration Standard
 
 > **The engine does not solve CAPTCHAs.** It detects them and exposes a stable
-> provider seam so an operator who is *authorized to access a site* can plug in
+> provider seam so an operator who is _authorized to access a site_ can plug in
 > their own solver. Solving is deliberately left out — it's sensitive (terms of
 > service, access authorization) and requires an external service or model.
 
@@ -13,13 +15,13 @@ site's terms. See [Responsible use](#responsible-use).
 
 ## What the engine provides vs. what you provide
 
-| Engine provides | You provide (optional) |
-|---|---|
-| **Detection** — recognizes reCAPTCHA / hCaptcha / Turnstile widgets and extracts the site key (`detectCaptcha`) | A **solver** that turns a challenge into a token |
-| **Provider registry** — `registerCaptchaSolver(name, factory)` | The factory + adapter to your solving service |
-| **Selection** — `OCTORYN_SCOUT_CAPTCHA_PROVIDER` picks the active solver | An API key via `OCTORYN_SCOUT_CAPTCHA_API_KEY` (BYO) |
-| **Default** — `NoopCaptchaSolver` (declines everything) | — |
-| **Template** — inert `ExternalSolverTemplate` showing the shape | — |
+| Engine provides                                                                                                 | You provide (optional)                               |
+| --------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| **Detection** — recognizes reCAPTCHA / hCaptcha / Turnstile widgets and extracts the site key (`detectCaptcha`) | A **solver** that turns a challenge into a token     |
+| **Provider registry** — `registerCaptchaSolver(name, factory)`                                                  | The factory + adapter to your solving service        |
+| **Selection** — `OCTORYN_SCOUT_CAPTCHA_PROVIDER` picks the active solver                                        | An API key via `OCTORYN_SCOUT_CAPTCHA_API_KEY` (BYO) |
+| **Default** — `NoopCaptchaSolver` (declines everything)                                                         | —                                                    |
+| **Template** — inert `ExternalSolverTemplate` showing the shape                                                 | —                                                    |
 
 The engine ships **no working solver** and makes **no network calls** to any
 solving service.
@@ -33,16 +35,16 @@ type CaptchaKind = "recaptcha-v2" | "recaptcha-v3" | "hcaptcha" | "turnstile" | 
 
 interface CaptchaChallenge {
   kind: CaptchaKind;
-  url: string;                       // page URL where the challenge appears
-  siteKey?: string;                  // extracted from the page
-  action?: string;                   // reCAPTCHA v3 action, if any
-  data?: Record<string, unknown>;    // provider-specific extras
+  url: string; // page URL where the challenge appears
+  siteKey?: string; // extracted from the page
+  action?: string; // reCAPTCHA v3 action, if any
+  data?: Record<string, unknown>; // provider-specific extras
 }
 
 interface CaptchaSolution {
-  token: string;                     // the token to inject back into the page/request
+  token: string; // the token to inject back into the page/request
   provider: string;
-  solvedAt: string;                  // ISO timestamp
+  solvedAt: string; // ISO timestamp
 }
 
 interface CaptchaSolver {
@@ -65,10 +67,7 @@ interface CaptchaSolver {
 ## Implementing a solver
 
 ```ts
-import {
-  ExternalSolverTemplate,
-  registerCaptchaSolver,
-} from "octopus-scout/dist/fetcher/captcha.js";
+import { ExternalSolverTemplate, registerCaptchaSolver } from "octopus-scout/dist/fetcher/captcha.js";
 import type { CaptchaChallenge, CaptchaSolution } from "octopus-scout/dist/types.js";
 
 class TwoCaptchaSolver extends ExternalSolverTemplate {
@@ -117,10 +116,10 @@ as if CAPTCHA support were absent until you register a solver.
 
 ## Configuration
 
-| Env var | Meaning |
-|---|---|
-| `OCTORYN_SCOUT_CAPTCHA_PROVIDER` | Registered solver name (default `none`) |
-| `OCTORYN_SCOUT_CAPTCHA_API_KEY` | BYO key passed to your solver (optional) |
+| Env var                          | Meaning                                  |
+| -------------------------------- | ---------------------------------------- |
+| `OCTORYN_SCOUT_CAPTCHA_PROVIDER` | Registered solver name (default `none`)  |
+| `OCTORYN_SCOUT_CAPTCHA_API_KEY`  | BYO key passed to your solver (optional) |
 
 ---
 

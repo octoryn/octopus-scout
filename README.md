@@ -1,3 +1,5 @@
+**English** | [简体中文](README.zh-CN.md)
+
 # Octopus Scout
 
 [![CI](https://github.com/octoryn/octopus-scout/actions/workflows/ci.yml/badge.svg)](https://github.com/octoryn/octopus-scout/actions/workflows/ci.yml)
@@ -10,7 +12,7 @@ Octoryn Web Ingestion Engine: a governed, auditable, AI-native ingestion pipelin
 
 This first version optimizes for the normal 80% of the web: fetch, optional browser render, extract, normalize to Markdown/JSON, build evidence anchors, cache/version the result, and expose it through API, CLI, queue, and MCP-compatible tooling.
 
-> 📐 **架构与技术说明、与 Firecrawl 对标**：见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
+> 📐 **Architecture, technical notes, and Firecrawl comparison**: see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Quick Start
 

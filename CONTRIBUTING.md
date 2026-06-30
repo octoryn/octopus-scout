@@ -1,3 +1,5 @@
+**English** | [简体中文](CONTRIBUTING.zh-CN.md)
+
 # Contributing to Octopus Scout
 
 Thanks for your interest in contributing. This guide covers the basics.
@@ -24,7 +26,7 @@ OCTORYN_SCOUT_ALLOW_PRIVATE_HOSTS=true npm test     # vitest (the flag lets loca
 
 - **Type safety:** the project is `strict`. No `any` escapes unless unavoidable and commented.
 - **Tests:** new behavior needs tests. Tests must be **hermetic** — localhost only (no external network), unique temp dirs, cleaned up. Tests that need an API key / real DB must be gated with `describe.skipIf(...)` so the default suite stays green.
-- **Stub embedder is hash-based** — never assert the *sign* of a cosine score in a test; only finiteness/ordering with a real provider.
+- **Stub embedder is hash-based** — never assert the _sign_ of a cosine score in a test; only finiteness/ordering with a real provider.
 - **Zero-dependency anti-bot:** the `src/fetcher` anti-bot code (stealth, proxy, challenge, captcha) must not add third-party libraries — Node built-ins + Playwright only.
 
 ## Project layout

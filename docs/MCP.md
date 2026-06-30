@@ -1,3 +1,5 @@
+**English** | [简体中文](MCP.zh-CN.md)
+
 # Octopus Scout MCP Server
 
 `octopus-scout` ships an [MCP](https://modelcontextprotocol.io) server that exposes
