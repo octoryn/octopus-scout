@@ -187,9 +187,11 @@ URL Input
 
 `POST /extract`（或 `cli extract`）执行 **LLM 结构化抽取**：它抓取一个
 URL，然后返回符合你所提供 JSON Schema 的 JSON。提供方可插拔
-（`OCTORYN_SCOUT_EXTRACTION_PROVIDER` = 默认 `none` | `anthropic` | `openai`）：Anthropic
+（`OCTORYN_SCOUT_EXTRACTION_PROVIDER` = 默认 `none` | `anthropic` | `openai` | `bedrock`）：Anthropic
 使用官方 SDK，搭配 `claude-opus-4-8` 以及 `output_config` 的 json-schema 输出，OpenAI
-使用 json-schema 的 `response_format`；被治理拦截的页面会被跳过，绝不抽取。
+使用 json-schema 的 `response_format`，而 `bedrock` 通过一个 Bedrock API key
+（`AWS_BEARER_TOKEN_BEDROCK` + `OCTORYN_SCOUT_BEDROCK_REGION`，用强制 tool-use 产出 JSON、
+无需 AWS SDK 依赖）在 **Amazon Bedrock** 上运行 Anthropic 模型；被治理拦截的页面会被跳过，绝不抽取。
 
 抽取也能扩展到单页之外：`POST /extract/batch` 对一个显式的 URL 列表运行相同的 schema，
 而 `POST /extract/site` 会先发现一个站点的 URL（即 `/map` 路径），再对每个页面抽取该

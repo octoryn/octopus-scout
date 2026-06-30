@@ -180,6 +180,90 @@ export class OpenAIExtractionProvider implements ExtractionProvider {
   }
 }
 
+interface BedrockToolUseBlock {
+  type: string;
+  name?: string;
+  input?: unknown;
+}
+interface BedrockMessageResponse {
+  content?: BedrockToolUseBlock[];
+  usage?: { input_tokens?: number; output_tokens?: number };
+}
+
+/**
+ * Structured-extraction provider backed by Anthropic models on **Amazon
+ * Bedrock**. Uses the Bedrock runtime `invoke` endpoint with a Bedrock API key
+ * (bearer token, `AWS_BEARER_TOKEN_BEDROCK`) — no AWS SDK dependency, just the
+ * global `fetch`, consistent with this project's zero-extra-dependency stance.
+ *
+ * JSON is coerced via forced tool-use (`tool_choice: {type:"tool"}`) with the
+ * caller's JSON Schema as the tool's `input_schema` — the robust cross-version
+ * approach on Bedrock. The model id is a Bedrock model or inference-profile id
+ * (e.g. `us.anthropic.claude-sonnet-4-6`).
+ */
+export class BedrockExtractionProvider implements ExtractionProvider {
+  readonly name = "bedrock";
+  readonly model: string;
+
+  private readonly region: string;
+  private readonly bearerToken: string;
+
+  constructor(bearerToken: string, region: string, model?: string) {
+    this.bearerToken = bearerToken;
+    this.region = region;
+    this.model = model ?? "us.anthropic.claude-sonnet-4-6";
+  }
+
+  async extract(input: {
+    markdown: string;
+    schema: Record<string, unknown>;
+    prompt?: string;
+    sourceUrl: string;
+  }): Promise<{ data: Record<string, unknown>; usage?: Record<string, number> }> {
+    const userContent =
+      (input.prompt ? input.prompt + "\n\n" : "") +
+      "Extract per the provided schema from this document:\n\n" +
+      input.markdown.slice(0, MAX_DOCUMENT_CHARS);
+
+    const endpoint = `https://bedrock-runtime.${this.region}.amazonaws.com/model/${this.model}/invoke`;
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.bearerToken}`,
+        "Content-Type": "application/json",
+        Accept: "application/json"
+      },
+      body: JSON.stringify({
+        anthropic_version: "bedrock-2023-05-31",
+        max_tokens: 4096,
+        system: ANTHROPIC_SYSTEM_PROMPT,
+        tools: [
+          { name: "extract", description: "Extract structured data per the schema.", input_schema: input.schema }
+        ],
+        tool_choice: { type: "tool", name: "extract" },
+        messages: [{ role: "user", content: userContent }]
+      })
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(`Bedrock extraction failed (${response.status}): ${body.slice(0, 300)}`);
+    }
+
+    const json = (await response.json()) as BedrockMessageResponse;
+    const toolUse = (json.content ?? []).find((b) => b.type === "tool_use");
+    if (!toolUse || toolUse.input === undefined) {
+      throw new Error("Bedrock extraction returned no tool_use block");
+    }
+
+    const usage: Record<string, number> = {};
+    if (typeof json.usage?.input_tokens === "number") usage.input_tokens = json.usage.input_tokens;
+    if (typeof json.usage?.output_tokens === "number") usage.output_tokens = json.usage.output_tokens;
+
+    return { data: asRecord(toolUse.input), usage: Object.keys(usage).length ? usage : undefined };
+  }
+}
+
 /**
  * Inert fallback provider used when no LLM is configured (no provider selected
  * or no API key present). Its `extract` always throws; callers gate on
@@ -200,6 +284,7 @@ let provider: ExtractionProvider | undefined;
  * Returns the active structured-extraction provider, selected from config:
  *  - "anthropic" + an Anthropic API key -> {@link AnthropicExtractionProvider}
  *  - "openai" + an OpenAI API key        -> {@link OpenAIExtractionProvider}
+ *  - "bedrock" + a Bedrock bearer token  -> {@link BedrockExtractionProvider}
  *  - otherwise (incl. missing key)       -> {@link NoneExtractionProvider}
  *
  * Never throws on a missing key: a misconfigured provider degrades to "none".
@@ -211,6 +296,8 @@ export function getExtractionProvider(): ExtractionProvider {
       provider = new AnthropicExtractionProvider(config.anthropicApiKey, config.extractionModel);
     } else if (config.extractionProvider === "openai" && config.openaiApiKey) {
       provider = new OpenAIExtractionProvider(config.openaiApiKey, config.extractionModel);
+    } else if (config.extractionProvider === "bedrock" && config.bedrockBearerToken) {
+      provider = new BedrockExtractionProvider(config.bedrockBearerToken, config.bedrockRegion, config.extractionModel);
     } else {
       provider = new NoneExtractionProvider();
     }

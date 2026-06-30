@@ -193,9 +193,12 @@ stopword-stripped keyword form), each searched and the hits fused — no LLM cal
 
 `POST /extract` (or `cli extract`) performs **LLM structured extraction**: it scrapes a
 URL, then returns JSON conforming to a JSON Schema you supply. The provider is pluggable
-(`OCTORYN_SCOUT_EXTRACTION_PROVIDER` = `none` default | `anthropic` | `openai`): Anthropic
-uses the official SDK with `claude-opus-4-8` and `output_config` json-schema output, OpenAI
-uses json-schema `response_format`; governance-blocked pages are skipped, never extracted.
+(`OCTORYN_SCOUT_EXTRACTION_PROVIDER` = `none` default | `anthropic` | `openai` | `bedrock`):
+Anthropic uses the official SDK with `claude-opus-4-8` and `output_config` json-schema output,
+OpenAI uses json-schema `response_format`, and `bedrock` runs Anthropic models on **Amazon
+Bedrock** via a Bedrock API key (`AWS_BEARER_TOKEN_BEDROCK` + `OCTORYN_SCOUT_BEDROCK_REGION`,
+forced tool-use for JSON, no AWS SDK dependency); governance-blocked pages are skipped, never
+extracted.
 
 Extraction also scales beyond a single page: `POST /extract/batch` runs the same schema over
 an explicit list of URLs, and `POST /extract/site` first discovers a site's URLs (the `/map`
