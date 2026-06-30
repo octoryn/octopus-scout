@@ -30,7 +30,9 @@ const EXPECTED_TOOLS = [
   "octoryn_ingest",
   "octoryn_ingest_site",
   "octoryn_search",
-  "octoryn_extract"
+  "octoryn_extract",
+  "octoryn_extract_batch",
+  "octoryn_extract_site"
 ].sort();
 
 type JsonRpcResponse = {
@@ -66,7 +68,7 @@ describe("MCP stdio server", () => {
     }
   });
 
-  it("lists exactly the eight octoryn tools via tools/list", async (ctx) => {
+  it("lists exactly the ten octoryn tools via tools/list", async (ctx) => {
     const { command, args } = resolveLaunch();
 
     try {

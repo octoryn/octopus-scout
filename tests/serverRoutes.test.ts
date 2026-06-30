@@ -127,6 +127,78 @@ describe("buildServer HTTP layer", () => {
       expect(res.json().error).toBe("ZodError");
     });
 
+    it("POST /extract/batch with an empty body is rejected by zod validation", async () => {
+      const app = await buildApp();
+      const res = await app.inject({ method: "POST", url: "/extract/batch", payload: {} });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toBe("ZodError");
+    });
+
+    it("POST /extract/batch with an empty urls array is rejected by zod validation", async () => {
+      const app = await buildApp();
+      const res = await app.inject({
+        method: "POST",
+        url: "/extract/batch",
+        payload: { urls: [], schema: {} }
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toBe("ZodError");
+    });
+
+    it("POST /extract/site with a missing url is rejected by zod validation", async () => {
+      const app = await buildApp();
+      const res = await app.inject({ method: "POST", url: "/extract/site", payload: { schema: {} } });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toBe("ZodError");
+    });
+
+    it("POST /extract/site with a malformed url is rejected by zod validation", async () => {
+      const app = await buildApp();
+      const res = await app.inject({
+        method: "POST",
+        url: "/extract/site",
+        payload: { url: "not-a-url", schema: {} }
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toBe("ZodError");
+    });
+
+    it("GET /extractions -> 200 with an array (empty when nothing stored)", async () => {
+      const dir = await mkdtemp(join(tmpdir(), "scout-extractions-"));
+      const prev = process.env.OCTORYN_SCOUT_DATA_DIR;
+      process.env.OCTORYN_SCOUT_DATA_DIR = dir;
+      vi.resetModules();
+      try {
+        const app = await buildApp();
+        const res = await app.inject({ method: "GET", url: "/extractions" });
+        expect(res.statusCode).toBe(200);
+        const body = res.json();
+        expect(Array.isArray(body)).toBe(true);
+        expect(body).toHaveLength(0);
+      } finally {
+        if (prev === undefined) delete process.env.OCTORYN_SCOUT_DATA_DIR;
+        else process.env.OCTORYN_SCOUT_DATA_DIR = prev;
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("GET /extractions/:id for an unknown id -> 404", async () => {
+      const dir = await mkdtemp(join(tmpdir(), "scout-extractions-"));
+      const prev = process.env.OCTORYN_SCOUT_DATA_DIR;
+      process.env.OCTORYN_SCOUT_DATA_DIR = dir;
+      vi.resetModules();
+      try {
+        const app = await buildApp();
+        const res = await app.inject({ method: "GET", url: "/extractions/does-not-exist" });
+        expect(res.statusCode).toBe(404);
+        expect(res.json().error).toBe("extraction not found");
+      } finally {
+        if (prev === undefined) delete process.env.OCTORYN_SCOUT_DATA_DIR;
+        else process.env.OCTORYN_SCOUT_DATA_DIR = prev;
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
     it("GET an unknown route -> 404", async () => {
       const app = await buildApp();
       const res = await app.inject({ method: "GET", url: "/does-not-exist" });

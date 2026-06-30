@@ -125,7 +125,8 @@ export const searchRequestSchema = z.object({
   includeBlocked: z.boolean().default(false),
   includeUnapproved: z.boolean().default(false),
   mode: z.enum(["vector", "lexical", "hybrid"]).optional(),
-  rerank: z.boolean().optional()
+  rerank: z.boolean().optional(),
+  rewrite: z.boolean().default(false)
 });
 
 export const structuredExtractRequestSchema = z.object({
@@ -133,4 +134,22 @@ export const structuredExtractRequestSchema = z.object({
   schema: z.record(z.string(), z.any()),
   prompt: z.string().optional(),
   forceRefresh: z.boolean().default(false)
+});
+
+export const batchExtractRequestSchema = z.object({
+  urls: z.array(z.string().url()).min(1).max(100),
+  schema: z.record(z.string(), z.any()),
+  prompt: z.string().optional(),
+  forceRefresh: z.boolean().default(false)
+});
+
+export const siteExtractRequestSchema = z.object({
+  url: z.string().url(),
+  schema: z.record(z.string(), z.any()),
+  prompt: z.string().optional(),
+  forceRefresh: z.boolean().default(false),
+  maxPages: z.number().int().positive().max(2000).default(25),
+  maxDepth: z.number().int().nonnegative().max(10).default(1),
+  includeSubdomains: z.boolean().default(false),
+  search: z.string().optional()
 });

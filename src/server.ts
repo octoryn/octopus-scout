@@ -11,6 +11,7 @@ import {
   approvalDecisionSchema,
   approvalListQuerySchema,
   auditListQuerySchema,
+  batchExtractRequestSchema,
   crawlRequestSchema,
   exportRequestSchema,
   fetchRequestSchema,
@@ -20,6 +21,7 @@ import {
   retentionRequestSchema,
   scrapeRequestSchema,
   searchRequestSchema,
+  siteExtractRequestSchema,
   siteIngestRequestSchema,
   sitemapRequestSchema,
   structuredExtractRequestSchema
@@ -32,6 +34,8 @@ import { ingestSite } from "./knowledge/siteIngest.js";
 import { ingestUrl, searchKnowledge } from "./knowledge/retrieval.js";
 import { getVectorStore } from "./knowledge/vectorStore.js";
 import { extractFromUrl } from "./extract/llmExtract.js";
+import { extractFromSite, extractFromUrls } from "./extract/extractMulti.js";
+import { createExtractionStore } from "./extract/extractionStore.js";
 import { runRetention } from "./storage/retention.js";
 import { createAuthHook } from "./auth.js";
 import { getAuditLog } from "./governance/auditLog.js";
@@ -277,6 +281,39 @@ export async function buildServer() {
   // Governance "blocked" and "no provider configured" come back as 200 with
   // skipped:true (data:{}); only thrown provider errors become 500.
   app.post("/extract", async (request) => extractFromUrl(structuredExtractRequestSchema.parse(request.body)));
+
+  // Multi-URL structured extraction: one result per input URL (order preserved).
+  // Governance + best-effort persistence are owned by extractFromUrl per URL.
+  app.post("/extract/batch", async (request) => extractFromUrls(batchExtractRequestSchema.parse(request.body)));
+
+  // Whole-site structured extraction: discover URLs (fast map) then extract each.
+  app.post("/extract/site", async (request) => extractFromSite(siteExtractRequestSchema.parse(request.body)));
+
+  // Read stored extractions. Secure-by-default: non-"allowed" rows are excluded
+  // unless ?includeUnapproved=true (which re-includes "requires_approval" only;
+  // "blocked" is never returned). A ?url= filter scopes to one source URL.
+  app.get("/extractions", async (request) => {
+    const query = request.query as { url?: string; includeUnapproved?: string; limit?: string };
+    const limit = query.limit !== undefined ? Number.parseInt(query.limit, 10) : undefined;
+    const safeLimit = Number.isNaN(limit as number) ? undefined : limit;
+    const store = createExtractionStore();
+    await store.init();
+    if (query.url) {
+      return store.listByUrl(query.url, safeLimit);
+    }
+    return store.list(safeLimit, { includeUnapproved: query.includeUnapproved === "true" });
+  });
+
+  app.get("/extractions/:id", async (request, reply) => {
+    const params = request.params as { id: string };
+    const store = createExtractionStore();
+    await store.init();
+    const record = await store.getById(params.id);
+    if (!record) {
+      return reply.code(404).send({ error: "extraction not found" });
+    }
+    return record;
+  });
 
   app.get("/governance/approvals", async (request) => {
     const query = approvalListQuerySchema.parse(request.query);

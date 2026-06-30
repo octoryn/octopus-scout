@@ -130,6 +130,10 @@ docker compose up
 - `POST /ingest-site` 爬取整个站点并将每个页面索引进向量库
 - `POST /search` 在知识库上做检索——`mode` = `vector` | `lexical` | `hybrid`（默认），可选 `rerank`；返回带引用锚点、信任度 (trust) 与治理状态的分块
 - `POST /extract` LLM 结构化抽取——抓取一个 URL 并返回符合所提供 JSON Schema 的 JSON（对标 Firecrawl `/extract`）
+- `POST /extract/batch` 对一个显式的 URL 列表运行相同的 JSON Schema 抽取（每个输入 URL 一个结果）
+- `POST /extract/site` 发现一个站点的 URL（`/map`）并对每个页面抽取该 schema
+- `GET /extractions` 列出已持久化的抽取（治理读取：默认排除非 `allowed`；`includeUnapproved` 显式开启）
+- `GET /extractions/:id` 按 id 读取单个已持久化的抽取
 - `GET /versions?url=` 某 URL 的版本历史（内容哈希快照）
 - `GET /snapshots/:id` 读取一份已保存的快照
 
@@ -177,12 +181,28 @@ URL Input
 随后结果会经过一个可插拔的重排器 (reranker)（`OCTORYN_SCOUT_RERANK_PROVIDER` =
 默认 `heuristic` | `cohere` | `voyage` | `none`）；启发式重排器是
 确定性的且离线运行，而 Cohere/Voyage 在设置了对应 API key 时启用。
+一个可选的 `rewrite` 开关会启用**启发式查询改写**：查询会被扩展成一小组
+确定性、离线的变体（原始查询、一个归一化形式，以及一个去停用词的关键词形式），
+每个变体各自检索后再融合命中——无 LLM 调用、无需 key。
 
 `POST /extract`（或 `cli extract`）执行 **LLM 结构化抽取**：它抓取一个
 URL，然后返回符合你所提供 JSON Schema 的 JSON。提供方可插拔
 （`OCTORYN_SCOUT_EXTRACTION_PROVIDER` = 默认 `none` | `anthropic` | `openai`）：Anthropic
 使用官方 SDK，搭配 `claude-opus-4-8` 以及 `output_config` 的 json-schema 输出，OpenAI
 使用 json-schema 的 `response_format`；被治理拦截的页面会被跳过，绝不抽取。
+
+抽取也能扩展到单页之外：`POST /extract/batch` 对一个显式的 URL 列表运行相同的 schema，
+而 `POST /extract/site` 会先发现一个站点的 URL（即 `/map` 路径），再对每个页面抽取该
+schema——每个 URL 一个结果，单个失败会被记为一个 skipped 结果而非中止整次运行。每个
+未被拦截的结果都会持久化进一个**受治理的 `ExtractionStore`**（File / SQLite / Postgres，
+选择逻辑与快照存储完全一致），并携带其 `governanceStatus`；`GET /extractions` 与
+`GET /extractions/:id` 将其读回，默认排除非 `allowed` 的行，并提供 `includeUnapproved`
+显式开启——与 search 相同的安全默认 (secure-by-default) 契约。
+
+> 🔌 **框架集成**：要把受治理的检索读取路径接入 LangChain 或 LlamaIndex，
+> 见 [docs/INTEGRATIONS.zh-CN.md](docs/INTEGRATIONS.zh-CN.md)——一个框架无关的
+> `searchAsDocuments` 辅助函数，外加可直接粘贴的 retriever 代码片段（octopus-scout
+> 不引入任何框架运行时依赖）。
 
 嵌入向量通过一个可插拔的 `EmbeddingProvider` 产生
 （`OCTORYN_SCOUT_EMBEDDING_PROVIDER` = `stub` | `voyage` | `openai`）：默认是一个

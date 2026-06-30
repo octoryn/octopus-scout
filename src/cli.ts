@@ -13,6 +13,8 @@ import { ingestSite } from "./knowledge/siteIngest.js";
 import { ingestUrl, searchKnowledge } from "./knowledge/retrieval.js";
 import { getVectorStore } from "./knowledge/vectorStore.js";
 import { extractFromUrl } from "./extract/llmExtract.js";
+import { extractFromSite, extractFromUrls } from "./extract/extractMulti.js";
+import { createExtractionStore } from "./extract/extractionStore.js";
 import { runRetention } from "./storage/retention.js";
 import { getApprovalStore } from "./governance/approvalStore.js";
 import { getAuditLog } from "./governance/auditLog.js";
@@ -280,6 +282,7 @@ program
   .option("--mode <mode>", "retrieval mode: vector, lexical, or hybrid")
   .option("--rerank", "force second-stage reranking on")
   .option("--no-rerank", "disable second-stage reranking")
+  .option("--rewrite", "expand the query into variants and fuse the results", false)
   .action(async (query, options) => {
     const result = await searchKnowledge({
       query,
@@ -291,7 +294,8 @@ program
       mode: options.mode as RetrievalMode | undefined,
       // commander sets options.rerank to false only when --no-rerank is passed
       // and true when --rerank is passed; otherwise it is undefined (use config).
-      rerank: options.rerank
+      rerank: options.rerank,
+      rewrite: options.rewrite
     });
     printJson(result);
   });
@@ -320,6 +324,65 @@ program
       reason: result.reason,
       governanceStatus: result.governanceStatus
     });
+  });
+
+program
+  .command("extract-batch")
+  .argument("<urls...>", "one or more URLs to extract from")
+  .description("scrape multiple URLs and extract structured data via an LLM provider (one result per URL)")
+  .requiredOption("--schema <jsonFileOrInline>", "JSON schema: path to a .json file or an inline JSON string")
+  .option("--prompt <text>", "additional extraction instructions")
+  .option("--force-refresh", "ignore fresh cache", false)
+  .action(async (urls: string[], options) => {
+    const schema = parseSchemaOption(options.schema);
+    const results = await extractFromUrls({
+      urls,
+      schema,
+      prompt: options.prompt,
+      forceRefresh: options.forceRefresh
+    });
+    printJson(results);
+  });
+
+program
+  .command("extract-site")
+  .argument("<url>")
+  .description("discover URLs across a site (fast map) then extract structured data from each via an LLM provider")
+  .requiredOption("--schema <jsonFileOrInline>", "JSON schema: path to a .json file or an inline JSON string")
+  .option("--prompt <text>", "additional extraction instructions")
+  .option("--force-refresh", "ignore fresh cache", false)
+  .option("--max-pages <n>", "maximum pages to discover and extract", parseInteger)
+  .option("--max-depth <n>", "accepted for API symmetry (mapSite does not recurse)", parseInteger)
+  .option("--include-subdomains", "include subdomains of the root host", false)
+  .option("--search <text>", "case-insensitive substring filter on discovered URLs")
+  .action(async (url, options) => {
+    const schema = parseSchemaOption(options.schema);
+    const result = await extractFromSite({
+      url,
+      schema,
+      prompt: options.prompt,
+      forceRefresh: options.forceRefresh,
+      maxPages: options.maxPages,
+      maxDepth: options.maxDepth,
+      includeSubdomains: options.includeSubdomains,
+      search: options.search
+    });
+    printJson(result);
+  });
+
+program
+  .command("extractions")
+  .description("list persisted structured extractions (secure-by-default: excludes non-allowed)")
+  .option("--url <u>", "restrict to a source URL")
+  .option("--include-unapproved", "include extractions still pending approval (requires_approval)", false)
+  .option("--limit <n>", "maximum extractions to list (<=0 for all)", parseInteger)
+  .action(async (options) => {
+    const store = createExtractionStore();
+    await store.init();
+    const records = options.url
+      ? await store.listByUrl(options.url, options.limit)
+      : await store.list(options.limit, { includeUnapproved: options.includeUnapproved });
+    printJson(records);
   });
 
 program

@@ -10,6 +10,7 @@ import { buildRagDocument } from "./knowledge/ragExport.js";
 import { ingestSite } from "./knowledge/siteIngest.js";
 import { ingestUrl, searchKnowledge } from "./knowledge/retrieval.js";
 import { extractFromUrl } from "./extract/llmExtract.js";
+import { extractFromSite, extractFromUrls } from "./extract/extractMulti.js";
 import type { RenderMode, RetrievalMode } from "./types.js";
 
 const server = new Server(
@@ -138,6 +139,40 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           schema: { type: "object" },
           prompt: { type: "string" },
           forceRefresh: { type: "boolean", default: false }
+        },
+        required: ["url", "schema"]
+      }
+    },
+    {
+      name: "octoryn_extract_batch",
+      description:
+        "Scrape multiple URLs and extract structured data into a caller-supplied JSON schema (one result per URL).",
+      inputSchema: {
+        type: "object",
+        properties: {
+          urls: { type: "array", items: { type: "string", format: "uri" } },
+          schema: { type: "object" },
+          prompt: { type: "string" },
+          forceRefresh: { type: "boolean", default: false }
+        },
+        required: ["urls", "schema"]
+      }
+    },
+    {
+      name: "octoryn_extract_site",
+      description:
+        "Discover URLs across a site (fast map) then extract structured data from each into a caller-supplied JSON schema.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          url: { type: "string", format: "uri" },
+          schema: { type: "object" },
+          prompt: { type: "string" },
+          forceRefresh: { type: "boolean", default: false },
+          maxPages: { type: "number" },
+          maxDepth: { type: "number" },
+          includeSubdomains: { type: "boolean", default: false },
+          search: { type: "string" }
         },
         required: ["url", "schema"]
       }
@@ -290,6 +325,58 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       schema: args.schema,
       prompt: args.prompt,
       forceRefresh: args.forceRefresh ?? false
+    });
+    return asText(result);
+  }
+
+  if (name === "octoryn_extract_batch") {
+    const args = (rawArgs ?? {}) as {
+      urls?: string[];
+      schema?: Record<string, unknown>;
+      prompt?: string;
+      forceRefresh?: boolean;
+    };
+    if (!Array.isArray(args.urls) || args.urls.length === 0) {
+      throw new Error("urls (non-empty array) is required");
+    }
+    if (!args.schema || typeof args.schema !== "object") {
+      throw new Error("schema (object) is required");
+    }
+    const results = await extractFromUrls({
+      urls: args.urls,
+      schema: args.schema,
+      prompt: args.prompt,
+      forceRefresh: args.forceRefresh ?? false
+    });
+    return asText(results);
+  }
+
+  if (name === "octoryn_extract_site") {
+    const args = (rawArgs ?? {}) as {
+      url?: string;
+      schema?: Record<string, unknown>;
+      prompt?: string;
+      forceRefresh?: boolean;
+      maxPages?: number;
+      maxDepth?: number;
+      includeSubdomains?: boolean;
+      search?: string;
+    };
+    if (!args.url) {
+      throw new Error("url is required");
+    }
+    if (!args.schema || typeof args.schema !== "object") {
+      throw new Error("schema (object) is required");
+    }
+    const result = await extractFromSite({
+      url: args.url,
+      schema: args.schema,
+      prompt: args.prompt,
+      forceRefresh: args.forceRefresh ?? false,
+      maxPages: args.maxPages,
+      maxDepth: args.maxDepth,
+      includeSubdomains: args.includeSubdomains,
+      search: args.search
     });
     return asText(result);
   }

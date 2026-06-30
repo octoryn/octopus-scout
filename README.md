@@ -134,6 +134,10 @@ Knowledge & retrieval:
 - `POST /ingest-site` crawl a whole site and index every page into the vector store
 - `POST /search` retrieval over the knowledge base — `mode` = `vector` | `lexical` | `hybrid` (default), optional `rerank`; returns chunks with citation anchors, trust, and governance status
 - `POST /extract` LLM structured extraction — scrape a URL and return JSON conforming to a supplied JSON Schema (cf. Firecrawl `/extract`)
+- `POST /extract/batch` run the same JSON Schema extraction over an explicit list of URLs (one result per input URL)
+- `POST /extract/site` discover a site's URLs (`/map`) and extract the schema from each page
+- `GET /extractions` list persisted extractions (governed reads: non-`allowed` excluded by default; `includeUnapproved` opt-in)
+- `GET /extractions/:id` read one persisted extraction by id
 - `GET /versions?url=` version history (content-hash snapshots) for a URL
 - `GET /snapshots/:id` read a saved snapshot
 
@@ -183,12 +187,29 @@ Retrieval (`POST /search`) supports three modes: `vector` (embedding cosine),
 Results then pass through a pluggable reranker (`OCTORYN_SCOUT_RERANK_PROVIDER` =
 `heuristic` default | `cohere` | `voyage` | `none`); the heuristic reranker is
 deterministic and offline, and Cohere/Voyage activate when their API key is set.
+An optional `rewrite` flag turns on **heuristic query rewriting**: the query is expanded
+into a small set of deterministic, offline variants (the original, a normalized form, and a
+stopword-stripped keyword form), each searched and the hits fused — no LLM call, no key.
 
 `POST /extract` (or `cli extract`) performs **LLM structured extraction**: it scrapes a
 URL, then returns JSON conforming to a JSON Schema you supply. The provider is pluggable
 (`OCTORYN_SCOUT_EXTRACTION_PROVIDER` = `none` default | `anthropic` | `openai`): Anthropic
 uses the official SDK with `claude-opus-4-8` and `output_config` json-schema output, OpenAI
 uses json-schema `response_format`; governance-blocked pages are skipped, never extracted.
+
+Extraction also scales beyond a single page: `POST /extract/batch` runs the same schema over
+an explicit list of URLs, and `POST /extract/site` first discovers a site's URLs (the `/map`
+path) and then extracts the schema from each page — one result per URL, with a single failure
+captured as a skipped result rather than aborting the run. Every non-blocked result is
+persisted in a **governed `ExtractionStore`** (File / SQLite / Postgres, selected exactly like
+the snapshot store) carrying its `governanceStatus`; `GET /extractions` and `GET /extractions/:id`
+read them back, excluding non-`allowed` rows by default with an `includeUnapproved` opt-in —
+the same secure-by-default contract as search.
+
+> 🔌 **Framework integrations**: to plug the governed retrieval read-path into
+> LangChain or LlamaIndex, see [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) — a
+> framework-agnostic `searchAsDocuments` helper plus copy-paste retriever
+> snippets (octopus-scout adds no framework runtime dependency).
 
 Embeddings are produced through a pluggable `EmbeddingProvider`
 (`OCTORYN_SCOUT_EMBEDDING_PROVIDER` = `stub` | `voyage` | `openai`): the default is a

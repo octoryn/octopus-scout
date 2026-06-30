@@ -22,7 +22,7 @@ export { mapSite } from "./crawl/siteMap.js";
 export { readSitemap } from "./sitemap.js";
 
 // Knowledge: ingest, search, export, chunking, embeddings
-export { ingestUrl, searchKnowledge } from "./knowledge/retrieval.js";
+export { ingestUrl, searchKnowledge, rewriteQuery } from "./knowledge/retrieval.js";
 export { ingestSite } from "./knowledge/siteIngest.js";
 export { buildRagDocument, toJsonl } from "./knowledge/ragExport.js";
 export { getVectorStore } from "./knowledge/vectorStore.js";
@@ -31,6 +31,11 @@ export { getReranker } from "./knowledge/reranker.js";
 
 // Structured extraction
 export { extractFromUrl, getExtractionProvider } from "./extract/llmExtract.js";
+export { extractFromUrls, extractFromSite } from "./extract/extractMulti.js";
+export { createExtractionStore } from "./extract/extractionStore.js";
+
+// Framework-agnostic retriever adapter (LangChain / LlamaIndex)
+export { searchAsDocuments } from "./integrations.js";
 
 // Governance
 export { getAuditLog } from "./governance/auditLog.js";

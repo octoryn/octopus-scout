@@ -581,6 +581,19 @@ export interface StructuredExtractionResult {
 }
 
 /**
+ * A persisted structured extraction: the extraction result plus storage
+ * identity (id), the hash of the schema it was extracted against, the optional
+ * source content hash it was derived from, and when it was stored. Persisted
+ * with its governanceStatus so reads can apply the secure-by-default contract.
+ */
+export interface StoredExtraction extends StructuredExtractionResult {
+  id: string;
+  schemaHash: string;
+  contentHash?: string;
+  createdAt: string;
+}
+
+/**
  * Pluggable structured-extraction backend. Default is "none" (no LLM
  * configured); Anthropic (official SDK) and OpenAI activate when their API key
  * is set.

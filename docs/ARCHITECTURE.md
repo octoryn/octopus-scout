@@ -61,21 +61,22 @@ flowchart TD
 
 ### Module Map (`src/`)
 
-| Layer                   | Files                                                                          | Responsibility                                                                                      |
-| ----------------------- | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
-| **Entry points**        | `server.ts` · `cli.ts` · `mcp.ts`                                              | Fastify HTTP / commander CLI / MCP stdio — all three reuse the same pipeline                        |
-| **Fetching**            | `fetcher/httpFetcher.ts` · `browser/browserPool.ts`                            | Static fetch (with SSRF/limits/rate limiting) / pooled Playwright rendering                         |
-| **Security**            | `fetcher/urlGuard.ts` · `fetcher/content.ts` · `auth.ts`                       | SSRF guard / content size·type·charset / API-key authentication                                     |
-| **Politeness**          | `fetcher/robots.ts` · `fetcher/rateLimiter.ts`                                 | robots.txt + crawl-delay / distributed per-domain rate limiting                                     |
-| **Crawling**            | `crawl/crawler.ts` · `crawl/crawlStore.ts`                                     | BFS depth crawl + sitemap seeds + filtering / job persistence and resumable crawls                  |
-| **Extraction**          | `extract/*` · `sitemap.ts`                                                     | Readability main content, tables, images, HTML→MD, PDF→MD / sitemap parsing                         |
-| **Evidence/Governance** | `evidence/evidenceBuilder.ts` · `governance/*`                                 | Citation anchors·trust score / audit·approval·per-domain policy                                     |
-| **Storage**             | `storage/sqlite.ts` · `storage/snapshotStore.ts` · `storage/retention.ts`      | Shared SQLite connection / snapshot·dedup·versions (SQLite default · File · PG) / retention cleanup |
-| **Knowledge**           | `knowledge/{chunking,embedding,ragExport,vectorStore,retrieval,siteIngest}.ts` | Chunking · embedding · RAG export · vector store · retrieval · whole-site ingest                    |
-| **Events/Automation**   | `events/{eventBus,webhooks}.ts` · `schedule/scheduler.ts`                      | Event bus / signed webhooks / scheduled refresh                                                     |
-| **Queue**               | `queue/scrapeQueue.ts` · `worker.ts`                                           | BullMQ scrape/crawl queue + dead-letter queue + failure classification                              |
-| **Observability**       | `metrics.ts` · `health.ts`                                                     | Counter metrics (JSON/Prometheus) / readiness probe                                                 |
-| **Foundation**          | `config.ts` · `types.ts` · `utils/*`                                           | zod config / shared types / url·hash utilities                                                      |
+| Layer                   | Files                                                                                                    | Responsibility                                                                                                                                      |
+| ----------------------- | -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Entry points**        | `server.ts` · `cli.ts` · `mcp.ts`                                                                        | Fastify HTTP / commander CLI / MCP stdio — all three reuse the same pipeline                                                                        |
+| **Fetching**            | `fetcher/httpFetcher.ts` · `browser/browserPool.ts`                                                      | Static fetch (with SSRF/limits/rate limiting) / pooled Playwright rendering                                                                         |
+| **Security**            | `fetcher/urlGuard.ts` · `fetcher/content.ts` · `auth.ts`                                                 | SSRF guard / content size·type·charset / API-key authentication                                                                                     |
+| **Politeness**          | `fetcher/robots.ts` · `fetcher/rateLimiter.ts`                                                           | robots.txt + crawl-delay / distributed per-domain rate limiting                                                                                     |
+| **Crawling**            | `crawl/crawler.ts` · `crawl/crawlStore.ts`                                                               | BFS depth crawl + sitemap seeds + filtering / job persistence and resumable crawls                                                                  |
+| **Extraction**          | `extract/*` · `sitemap.ts`                                                                               | Readability main content, tables, images, HTML→MD, PDF→MD / sitemap parsing                                                                         |
+| **Evidence/Governance** | `evidence/evidenceBuilder.ts` · `governance/*`                                                           | Citation anchors·trust score / audit·approval·per-domain policy                                                                                     |
+| **Storage**             | `storage/sqlite.ts` · `storage/snapshotStore.ts` · `extract/extractionStore.ts` · `storage/retention.ts` | Shared SQLite connection / snapshot·dedup·versions / governed extraction store — all SQLite default · File · PG / retention cleanup                 |
+| **Knowledge**           | `knowledge/{chunking,embedding,ragExport,vectorStore,retrieval,siteIngest}.ts` · `integrations.ts`       | Chunking · embedding · RAG export · vector store · retrieval (+ heuristic query rewrite) · whole-site ingest · framework-agnostic retriever adapter |
+| **LLM Extraction**      | `extract/{llmExtract,extractMulti,extractionStore}.ts`                                                   | Single-URL LLM extraction · multi-URL / whole-site extraction · governed persistence of results                                                     |
+| **Events/Automation**   | `events/{eventBus,webhooks}.ts` · `schedule/scheduler.ts`                                                | Event bus / signed webhooks / scheduled refresh                                                                                                     |
+| **Queue**               | `queue/scrapeQueue.ts` · `worker.ts`                                                                     | BullMQ scrape/crawl queue + dead-letter queue + failure classification                                                                              |
+| **Observability**       | `metrics.ts` · `health.ts`                                                                               | Counter metrics (JSON/Prometheus) / readiness probe                                                                                                 |
+| **Foundation**          | `config.ts` · `types.ts` · `utils/*`                                                                     | zod config / shared types / url·hash utilities                                                                                                      |
 
 ---
 
@@ -108,7 +109,9 @@ flowchart TD
 8. **Dedup + persistence**: `findByHash` hit → reuse the old snapshot (`cache.dedup`); otherwise `save` a new version.
 9. **Side effects (best-effort)**: write the audit event; if `requires_approval` and not a duplicate → create a pending approval; `emitEvent` → webhook; `recordX` increments metrics.
 
-`/crawl` wraps a BFS frontier on the outside (depth, concurrency, same-origin/regex filtering, sitemap seeds, checkpoint to `crawlStore` every N pages to support resumable crawls), with each URL reusing the `scrapeUrl` above. `/ingest` / `/ingest-site` append the **chunk → embedding → vector store** write path after scraping; `/search` runs the **query embedding → vector retrieval → return with citations** read path.
+`/crawl` wraps a BFS frontier on the outside (depth, concurrency, same-origin/regex filtering, sitemap seeds, checkpoint to `crawlStore` every N pages to support resumable crawls), with each URL reusing the `scrapeUrl` above. `/ingest` / `/ingest-site` append the **chunk → embedding → vector store** write path after scraping; `/search` runs the **query embedding → vector retrieval → return with citations** read path, optionally with **heuristic query rewriting** (`rewrite`): the query is fanned out into a few deterministic, offline variants (original / normalized / stopword-stripped keyword form) and their hit sets are fused — no LLM, no key.
+
+**Extraction beyond a single page**: `/extract` scrapes one URL and returns schema-conforming JSON; `/extract/batch` (`extractFromUrls`) runs the same schema over an explicit URL list, and `/extract/site` (`extractFromSite`) first discovers URLs via the `/map` path and then extracts each page. Both delegate to the single-URL `extractFromUrl`, so the governance gate and best-effort persistence live in exactly one place; a single URL failure surfaces as a `skipped` result rather than aborting. Every non-blocked result is written to the **`ExtractionStore`** (File / SQLite / Postgres, chosen by `resolveStorageBackend` exactly like the snapshot store) with its `governanceStatus`; `/extractions` and `/extractions/:id` read them back, **excluding non-`allowed` rows by default** with an `includeUnapproved` opt-in — the same secure-by-default read contract as the vector store.
 
 ---
 
@@ -121,6 +124,7 @@ flowchart TD
 - **`SnapshotRecord` / `SnapshotSummary`** — version snapshots (history retained per url, queryable via `listVersionsByUrl`).
 - **`Chunk` / `StoredChunk`** — chunks (headingPath, charStart/End, anchorId) / stored vector entries (including embedding, trustScore, governanceStatus).
 - **`VectorSearchHit` / `VectorSearchResult`** — retrieval results with score + source + citation anchors + governance status.
+- **`StructuredExtractionResult` / `StoredExtraction`** — one LLM extraction (source/final URL, provider, `data`, `governanceStatus`, `skipped`/`reason`) / the persisted form (adds id, schema hash, timestamp) read back from the governed `ExtractionStore`.
 - **`AuditEvent` / `ApprovalRecord`** — append-only audit trail / approval tickets.
 - **`CrawlJobState` / `CrawlJobSummary`** — resumable crawler job state (frontier, visited, pages).
 - **`ScoutEvent` / `WebhookDelivery`** — internal events / webhook delivery records.
@@ -130,12 +134,12 @@ flowchart TD
 
 ## 6. Interface Surface
 
-**HTTP (30 routes, Fastify)**
+**HTTP (Fastify)**
 
 | Group          | Endpoints                                                                                                                                                                                 |
 | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Scraping       | `POST /scrape` `/fetch` `/render` `/sitemap` `/crawl` `/jobs/scrape` `/jobs/crawl` `GET /crawls` `/crawls/:id`                                                                            |
-| Knowledge      | `POST /export` `/ingest` `/ingest-site` `/search` `GET /versions?url=` `/snapshots/:id`                                                                                                   |
+| Knowledge      | `POST /export` `/ingest` `/ingest-site` `/search` `/extract` `/extract/batch` `/extract/site` `GET /extractions` `/extractions/:id` `/versions?url=` `/snapshots/:id`                     |
 | Governance/Ops | `GET /governance/approvals[/:id]` `POST /governance/approvals/:id/decision` `GET /audit` `POST /admin/retention` `/admin/refresh` `GET /events` `/webhooks` `/metrics` `/ready` `/health` |
 
 **CLI (18 commands)**: `scrape` `fetch` `render` `sitemap` `map` `crawl` `crawls` `export` `ingest` `ingest-site` `search` `extract` `retention` `refresh` `job` `approvals` `approve` `reject`
@@ -275,21 +279,25 @@ Honest positioning: **completeness has been substantially filled in (no longer "
 - ✅ **pgvector** backend (`vector(dim)` + HNSW cosine `<=>`), falling back to jsonb when the extension is unavailable.
 - ✅ **MCP server packaged for Claude / Codex**: `octopus-scout-mcp` bin + `docs/mcp/` config + `docs/MCP.md`.
 
-**Current limitations (as of R9 + quality review)**
+**Newly shipped since R9** (code-complete in this build)
+
+- ✅ **Multi-page / whole-site structured extraction**: `/extract/batch` (`extractFromUrls`) over an explicit URL list and `/extract/site` (`extractFromSite`) over `/map`-discovered URLs, both delegating to the single-URL `extractFromUrl` so the governance gate lives in one place.
+- ✅ **Governed `ExtractionStore`** (`extract/extractionStore.ts`): File / SQLite / Postgres parity selected by `resolveStorageBackend` (the SQLite backend creates its own table via `CREATE TABLE IF NOT EXISTS` in its constructor), with `/extractions` + `/extractions/:id` reads that exclude non-`allowed` rows by default and an `includeUnapproved` opt-in — the same secure-by-default contract as the vector store.
+- ✅ **Heuristic query rewriting** (`rewriteQuery` + the `rewrite` flag in `searchKnowledge`): a deterministic, offline fan-out (original / normalized / stopword-stripped keyword variants) whose hit sets are fused — no LLM, no key.
+- ✅ **LangChain / LlamaIndex adapter**: a framework-agnostic `searchAsDocuments` helper (`integrations.ts`) returning the `Document` shape, plus copy-paste retriever snippets in `docs/INTEGRATIONS.md`. **No `langchain`/`llamaindex` runtime dependency is added** — the framework packages stay in the consuming app.
+- ✅ **Quality fill-in**: ESLint integrated + a one-time lint cleanup (CI keeps `npm run lint` clean alongside typecheck/format/test); HTTP route-layer tests (`app.inject`) + dedicated `scrapeUrl`/pipeline tests + a coverage threshold; `proxiedFetch` gained an **absolute timeout** and **incremental chunk decoding** (the prior socket-idle-only timeout and O(n²) decode are resolved).
+
+**Current limitations (as of latest)**
 
 - The pgvector column dimension is locked to the vector length on the first upsert (switching embedding providers requires rebuilding the table).
 - Not live-verified (requires external keys/resources): Voyage embedding, Anthropic extraction, Cohere/Voyage rerank, large-scale load testing.
-- `proxiedFetch` has only a socket idle timeout (no absolute deadline), and chunk decoding is O(n²) — known DoS-resilience weaknesses (punch-list).
-- ESLint not yet integrated (Prettier + CI typecheck/test/format already added); the HTTP route layer and core `scrapeUrl` lack dedicated tests (service functions are well covered); no coverage threshold.
 - Anti-bot: only stealth-plus + BYO proxy + JS challenge waiting; **top-tier bot protection / CAPTCHA solving not guaranteed** (deliberate, see §8 and docs/CAPTCHA.md).
 
-**Suggested Roadmap**
+**Suggested Roadmap** (remaining)
 
-1. **Ecosystem**: TypeScript/Python SDK; LangChain/LlamaIndex retriever adapters.
-2. **Extraction enhancements**: multi-page/whole-site schema extraction; store extraction results.
-3. **Retrieval enhancements**: rerank live verification (requires key); query rewriting / HyDE.
-4. **Quality fill-in**: integrate ESLint + a one-time lint cleanup; HTTP route-layer tests (`app.inject`) + dedicated `scrapeUrl` tests + a coverage threshold; `proxiedFetch` absolute timeout + incremental chunk decoding.
-5. **Anthropic extraction live verification** (requires an Anthropic key).
+1. **Ecosystem**: TypeScript/Python SDK (the LangChain/LlamaIndex retriever adapter is already shipped — see above).
+2. **Retrieval enhancements**: rerank live verification (requires key); HyDE (heuristic query rewriting is already shipped).
+3. **Anthropic extraction live verification** (requires an Anthropic key).
 
 ---
 

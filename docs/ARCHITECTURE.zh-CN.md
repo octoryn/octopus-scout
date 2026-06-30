@@ -61,21 +61,22 @@ flowchart TD
 
 ### 模块映射（`src/`）
 
-| 层              | 文件                                                                           | 职责                                                                   |
-| --------------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
-| **入口**        | `server.ts` · `cli.ts` · `mcp.ts`                                              | Fastify HTTP / commander CLI / MCP stdio，三者复用同一管道             |
-| **抓取**        | `fetcher/httpFetcher.ts` · `browser/browserPool.ts`                            | 静态 fetch（带 SSRF/限制/限速）/ 池化 Playwright 渲染                  |
-| **安全**        | `fetcher/urlGuard.ts` · `fetcher/content.ts` · `auth.ts`                       | SSRF 守卫 / 内容大小·类型·字符集 / API-key 鉴权                        |
-| **礼貌**        | `fetcher/robots.ts` · `fetcher/rateLimiter.ts`                                 | robots.txt + crawl-delay / 分布式 per-domain 限速                      |
-| **爬取**        | `crawl/crawler.ts` · `crawl/crawlStore.ts`                                     | BFS 深度爬 + sitemap 种子 + 过滤 / 任务持久化与续爬                    |
-| **抽取**        | `extract/*` · `sitemap.ts`                                                     | Readability 正文、表格、图片、HTML→MD、PDF→MD / sitemap 解析           |
-| **证据/治理**   | `evidence/evidenceBuilder.ts` · `governance/*`                                 | 引用锚点·信任分 / 审计·审批·per-domain 策略                            |
-| **存储**        | `storage/sqlite.ts` · `storage/snapshotStore.ts` · `storage/retention.ts`      | 共享 SQLite 连接 / 快照·去重·版本（SQLite 默认 · File · PG）/ 保留清理 |
-| **知识**        | `knowledge/{chunking,embedding,ragExport,vectorStore,retrieval,siteIngest}.ts` | 分块 · embedding · RAG 导出 · 向量库 · 检索 · 整站入库                 |
-| **事件/自动化** | `events/{eventBus,webhooks}.ts` · `schedule/scheduler.ts`                      | 事件总线 / 签名 webhook / 定时刷新                                     |
-| **队列**        | `queue/scrapeQueue.ts` · `worker.ts`                                           | BullMQ scrape/crawl 队列 + 死信队列 + 失败分类                         |
-| **可观测**      | `metrics.ts` · `health.ts`                                                     | 计数指标（JSON/Prometheus）/ 就绪探针                                  |
-| **基础**        | `config.ts` · `types.ts` · `utils/*`                                           | zod 配置 / 共享类型 / url·hash 工具                                    |
+| 层              | 文件                                                                                                     | 职责                                                                                                    |
+| --------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| **入口**        | `server.ts` · `cli.ts` · `mcp.ts`                                                                        | Fastify HTTP / commander CLI / MCP stdio，三者复用同一管道                                              |
+| **抓取**        | `fetcher/httpFetcher.ts` · `browser/browserPool.ts`                                                      | 静态 fetch（带 SSRF/限制/限速）/ 池化 Playwright 渲染                                                   |
+| **安全**        | `fetcher/urlGuard.ts` · `fetcher/content.ts` · `auth.ts`                                                 | SSRF 守卫 / 内容大小·类型·字符集 / API-key 鉴权                                                         |
+| **礼貌**        | `fetcher/robots.ts` · `fetcher/rateLimiter.ts`                                                           | robots.txt + crawl-delay / 分布式 per-domain 限速                                                       |
+| **爬取**        | `crawl/crawler.ts` · `crawl/crawlStore.ts`                                                               | BFS 深度爬 + sitemap 种子 + 过滤 / 任务持久化与续爬                                                     |
+| **抽取**        | `extract/*` · `sitemap.ts`                                                                               | Readability 正文、表格、图片、HTML→MD、PDF→MD / sitemap 解析                                            |
+| **证据/治理**   | `evidence/evidenceBuilder.ts` · `governance/*`                                                           | 引用锚点·信任分 / 审计·审批·per-domain 策略                                                             |
+| **存储**        | `storage/sqlite.ts` · `storage/snapshotStore.ts` · `extract/extractionStore.ts` · `storage/retention.ts` | 共享 SQLite 连接 / 快照·去重·版本 / 受治理的抽取存储——均为 SQLite 默认 · File · PG / 保留清理           |
+| **知识**        | `knowledge/{chunking,embedding,ragExport,vectorStore,retrieval,siteIngest}.ts` · `integrations.ts`       | 分块 · embedding · RAG 导出 · 向量库 · 检索（+ 启发式查询改写）· 整站入库 · 框架无关的 retriever 适配器 |
+| **LLM 抽取**    | `extract/{llmExtract,extractMulti,extractionStore}.ts`                                                   | 单 URL LLM 抽取 · 多 URL / 整站抽取 · 抽取结果的受治理持久化                                            |
+| **事件/自动化** | `events/{eventBus,webhooks}.ts` · `schedule/scheduler.ts`                                                | 事件总线 / 签名 webhook / 定时刷新                                                                      |
+| **队列**        | `queue/scrapeQueue.ts` · `worker.ts`                                                                     | BullMQ scrape/crawl 队列 + 死信队列 + 失败分类                                                          |
+| **可观测**      | `metrics.ts` · `health.ts`                                                                               | 计数指标（JSON/Prometheus）/ 就绪探针                                                                   |
+| **基础**        | `config.ts` · `types.ts` · `utils/*`                                                                     | zod 配置 / 共享类型 / url·hash 工具                                                                     |
 
 ---
 
@@ -108,7 +109,9 @@ flowchart TD
 8. **去重 + 持久化**：`findByHash` 命中 → 复用旧快照（`cache.dedup`）；否则 `save` 新版本。
 9. **副作用（best-effort）**：写审计事件；`requires_approval` 且非重复 → 建 pending 审批；`emitEvent` → webhook；`recordX` 指标递增。
 
-`/crawl` 在外层套一个 BFS frontier（深度、并发、同源/正则过滤、sitemap 种子、每 N 页 checkpoint 到 `crawlStore` 以支持续爬），每个 URL 复用上面的 `scrapeUrl`。`/ingest` / `/ingest-site` 在 scrape 之后接上 **分块 → embedding → 向量库** 写路径；`/search` 走 **query embedding → 向量检索 → 带引用返回** 读路径。
+`/crawl` 在外层套一个 BFS frontier（深度、并发、同源/正则过滤、sitemap 种子、每 N 页 checkpoint 到 `crawlStore` 以支持续爬），每个 URL 复用上面的 `scrapeUrl`。`/ingest` / `/ingest-site` 在 scrape 之后接上 **分块 → embedding → 向量库** 写路径；`/search` 走 **query embedding → 向量检索 → 带引用返回** 读路径，可选地启用**启发式查询改写**（`rewrite`）：查询被扇出 (fan-out) 为几个确定性、离线的变体（原始 / 归一化 / 去停用词的关键词形式），再融合它们的命中集——无 LLM、无 key。
+
+**单页之外的抽取**：`/extract` 抓取一个 URL 并返回符合 schema 的 JSON；`/extract/batch`（`extractFromUrls`）对一个显式的 URL 列表运行相同的 schema，`/extract/site`（`extractFromSite`）先经 `/map` 路径发现 URL 再逐页抽取。两者都委托给单 URL 的 `extractFromUrl`，因此治理闸门与 best-effort 持久化只存在于一处；单个 URL 失败会作为一个 `skipped` 结果出现而非中止整批。每个未被拦截的结果都会写入 **`ExtractionStore`**（File / SQLite / Postgres，由 `resolveStorageBackend` 选择，与快照存储完全一致），并携带其 `governanceStatus`；`/extractions` 与 `/extractions/:id` 将其读回，**默认排除非 `allowed` 的行**，并提供 `includeUnapproved` 显式开启——与向量库相同的安全默认读取契约。
 
 ---
 
@@ -121,6 +124,7 @@ flowchart TD
 - **`SnapshotRecord` / `SnapshotSummary`** — 版本快照（按 url 保留历史，可查 `listVersionsByUrl`）。
 - **`Chunk` / `StoredChunk`** — 分块（headingPath、charStart/End、anchorId）/ 入库向量条目（含 embedding、trustScore、governanceStatus）。
 - **`VectorSearchHit` / `VectorSearchResult`** — 带分数 + 源 + 引用锚点 + 治理状态的检索结果。
+- **`StructuredExtractionResult` / `StoredExtraction`** — 一次 LLM 抽取（源/最终 URL、provider、`data`、`governanceStatus`、`skipped`/`reason`）/ 其持久化形态（增加 id、schema 哈希、时间戳），从受治理的 `ExtractionStore` 读回。
 - **`AuditEvent` / `ApprovalRecord`** — 追加式审计流水 / 审批工单。
 - **`CrawlJobState` / `CrawlJobSummary`** — 可续爬的爬虫任务状态（frontier、visited、pages）。
 - **`ScoutEvent` / `WebhookDelivery`** — 内部事件 / webhook 投递记录。
@@ -130,12 +134,12 @@ flowchart TD
 
 ## 6. 接口面
 
-**HTTP（30 路由，Fastify）**
+**HTTP（Fastify）**
 
 | 分组      | 端点                                                                                                                                                                                      |
 | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 抓取      | `POST /scrape` `/fetch` `/render` `/sitemap` `/crawl` `/jobs/scrape` `/jobs/crawl` `GET /crawls` `/crawls/:id`                                                                            |
-| 知识      | `POST /export` `/ingest` `/ingest-site` `/search` `GET /versions?url=` `/snapshots/:id`                                                                                                   |
+| 知识      | `POST /export` `/ingest` `/ingest-site` `/search` `/extract` `/extract/batch` `/extract/site` `GET /extractions` `/extractions/:id` `/versions?url=` `/snapshots/:id`                     |
 | 治理/运维 | `GET /governance/approvals[/:id]` `POST /governance/approvals/:id/decision` `GET /audit` `POST /admin/retention` `/admin/refresh` `GET /events` `/webhooks` `/metrics` `/ready` `/health` |
 
 **CLI（18 命令）**：`scrape` `fetch` `render` `sitemap` `map` `crawl` `crawls` `export` `ingest` `ingest-site` `search` `extract` `retention` `refresh` `job` `approvals` `approve` `reject`
@@ -275,21 +279,25 @@ flowchart TD
 - ✅ **pgvector** 后端（`vector(dim)` + HNSW cosine `<=>`），扩展不可用时回落 jsonb。
 - ✅ **MCP server 打包给 Claude / Codex**：`octopus-scout-mcp` bin + `docs/mcp/` 配置 + `docs/MCP.zh-CN.md`。
 
-**当前局限（截至 R9 + 质量复盘）**
+**R9 之后新交付**（本次构建已代码完成）
+
+- ✅ **多页 / 整站结构化抽取**：`/extract/batch`（`extractFromUrls`）对显式 URL 列表、`/extract/site`（`extractFromSite`）对 `/map` 发现的 URL，两者都委托给单 URL 的 `extractFromUrl`，使治理闸门只存在于一处。
+- ✅ **受治理的 `ExtractionStore`**（`extract/extractionStore.ts`）：File / SQLite / Postgres 三后端，由 `resolveStorageBackend` 选择（SQLite 后端在其构造函数中以 `CREATE TABLE IF NOT EXISTS` 自建表），`/extractions` + `/extractions/:id` 的读取默认排除非 `allowed` 的行，并提供 `includeUnapproved` 显式开启——与向量库相同的安全默认契约。
+- ✅ **启发式查询改写**（`rewriteQuery` + `searchKnowledge` 的 `rewrite` 开关）：确定性、离线的扇出（原始 / 归一化 / 去停用词关键词变体），融合其命中集——无 LLM、无 key。
+- ✅ **LangChain / LlamaIndex 适配**：一个框架无关的 `searchAsDocuments` 辅助函数（`integrations.ts`），返回 `Document` 形态，外加 `docs/INTEGRATIONS.zh-CN.md` 中可直接粘贴的 retriever 代码片段。**不新增 `langchain`/`llamaindex` 运行时依赖**——框架包留在使用方应用中。
+- ✅ **质量补齐**：ESLint 接入 + 一次 lint 清理（CI 在 typecheck/format/test 之外保持 `npm run lint` 干净）；HTTP 路由层测试（`app.inject`）+ `scrapeUrl`/管线专测 + 覆盖率门槛；`proxiedFetch` 增加了**绝对超时**与**增量分块解码**（此前仅 socket 空闲超时与 O(n²) 解码的问题已解决）。
+
+**当前局限（截至最新）**
 
 - pgvector 列维度在首次 upsert 时按向量长度锁定（换 embedding provider 需重建表）。
 - 未 live 验证（需外部 key/资源）：Voyage embedding、Anthropic 抽取、Cohere/Voyage rerank、大规模压测。
-- `proxiedFetch` 仅有 socket 空闲超时（无绝对截止），分块解码为 O(n²)——已知 DoS 韧性短板（punch-list）。
-- 未接入 ESLint（已加 Prettier + CI typecheck/test/format）；HTTP 路由层与核心 `scrapeUrl` 缺专测（服务函数覆盖充分）；无覆盖率门槛。
 - 反爬：仅 stealth-plus + BYO 代理 + JS 挑战等待；**顶级 bot 防护 / CAPTCHA 求解不保证**（有意，见 §8 与 docs/CAPTCHA.zh-CN.md）。
 
-**建议路线**
+**建议路线（剩余）**
 
-1. **生态**：TypeScript/Python SDK；LangChain/LlamaIndex retriever 适配。
-2. **抽取增强**：多页/整站 schema 抽取；抽取结果入库。
-3. **检索增强**：rerank live 验证（需 key）；查询改写 / HyDE。
-4. **质量补齐**：ESLint 接入 + 一次 lint 清理；HTTP 路由层测试（`app.inject`）+ `scrapeUrl` 专测 + 覆盖率门槛；`proxiedFetch` 绝对超时 + 增量分块解码。
-5. **Anthropic 抽取 live 验证**（需 Anthropic key）。
+1. **生态**：TypeScript/Python SDK（LangChain/LlamaIndex retriever 适配已交付——见上）。
+2. **检索增强**：rerank live 验证（需 key）；HyDE（启发式查询改写已交付）。
+3. **Anthropic 抽取 live 验证**（需 Anthropic key）。
 
 ---
 

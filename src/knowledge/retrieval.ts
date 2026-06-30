@@ -40,6 +40,91 @@ export interface SearchKnowledgeInput {
   includeUnapproved?: boolean;
   mode?: RetrievalMode;
   rerank?: boolean;
+  rewrite?: boolean;
+}
+
+/**
+ * Common English stopwords dropped when producing the keyword-only variant.
+ * Deliberately small and curated: enough to strip filler ("what", "is", "the")
+ * without gutting short queries.
+ */
+const STOPWORDS = new Set<string>([
+  "a",
+  "an",
+  "and",
+  "are",
+  "as",
+  "at",
+  "be",
+  "by",
+  "do",
+  "does",
+  "for",
+  "from",
+  "how",
+  "in",
+  "is",
+  "it",
+  "of",
+  "on",
+  "or",
+  "that",
+  "the",
+  "to",
+  "was",
+  "were",
+  "what",
+  "when",
+  "where",
+  "which",
+  "who",
+  "why",
+  "will",
+  "with"
+]);
+
+/**
+ * Produce a small, ordered, deduplicated set of query variants for retrieval.
+ *
+ * Heuristic only — no LLM, no network, fully deterministic and dependency-free.
+ * The returned variants, in order, are:
+ *  1. the original query (verbatim, trimmed only if it is all whitespace);
+ *  2. a normalized form: lowercased, punctuation stripped, whitespace collapsed;
+ *  3. a keyword-only expansion: the normalized tokens with common stopwords
+ *     removed (only when this differs from the normalized form and is non-empty).
+ *
+ * Variants are deduplicated (preserving first-seen order) so an already-normal,
+ * stopword-free query collapses to a single entry. An empty/whitespace query
+ * yields an empty array.
+ */
+export function rewriteQuery(query: string): string[] {
+  const variants: string[] = [];
+  const seen = new Set<string>();
+  const push = (value: string): void => {
+    if (value.length === 0 || seen.has(value)) return;
+    seen.add(value);
+    variants.push(value);
+  };
+
+  const original = query.trim();
+  if (original.length === 0) return [];
+  push(original);
+
+  // Normalize: lowercase, strip punctuation to spaces, collapse whitespace.
+  const normalized = original
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]+/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim();
+  push(normalized);
+
+  // Keyword-only expansion: drop stopwords from the normalized tokens.
+  const keywords = normalized.split(" ").filter((token) => token.length > 0 && !STOPWORDS.has(token));
+  if (keywords.length > 0) {
+    push(keywords.join(" "));
+  }
+
+  return variants;
 }
 
 /** Project the document's embedded chunks into StoredChunk rows for upsert. */
@@ -153,6 +238,21 @@ export async function searchKnowledge(input: SearchKnowledgeInput): Promise<Vect
   const topK = input.topK ?? 5;
   const config = loadConfig();
   const mode: RetrievalMode = input.mode ?? config.retrievalMode;
+
+  // Query rewriting (opt-in): expand the query into heuristic variants, run a
+  // (non-rewriting) search for each, and FUSE the candidate hit lists with the
+  // same reciprocal-rank-fusion used for hybrid retrieval, then take topK. With
+  // a single variant this is a no-op fusion, so behavior matches a plain search.
+  if (input.rewrite) {
+    const variants = rewriteQuery(input.query);
+    if (variants.length > 1) {
+      const lists = await Promise.all(
+        variants.map((variant) => searchKnowledge({ ...input, query: variant, rewrite: false, topK }))
+      );
+      const fused = reciprocalRankFusion(lists.map((result) => result.hits));
+      return { query: input.query, topK, hits: fused.slice(0, topK) };
+    }
+  }
 
   const filter: VectorSearchFilter = {
     url: input.url,

@@ -1,9 +1,12 @@
+import { randomUUID } from "node:crypto";
+
 import Anthropic from "@anthropic-ai/sdk";
 import type { MessageCreateParamsNonStreaming } from "@anthropic-ai/sdk/resources/messages";
 
 import { loadConfig } from "../config.js";
 import { scrapeUrl } from "../ingest/pipeline.js";
-import type { ExtractionProvider, StructuredExtractionResult } from "../types.js";
+import type { ExtractionProvider, StoredExtraction, StructuredExtractionResult } from "../types.js";
+import { createExtractionStore, schemaHash } from "./extractionStore.js";
 
 /** Cap the document size sent to the model to keep requests bounded. */
 const MAX_DOCUMENT_CHARS = 100_000;
@@ -269,7 +272,7 @@ export async function extractFromUrl(input: {
     sourceUrl
   });
 
-  return {
+  const extraction: StructuredExtractionResult = {
     sourceUrl,
     finalUrl,
     provider: activeProvider.name,
@@ -278,4 +281,35 @@ export async function extractFromUrl(input: {
     usage,
     governanceStatus
   };
+
+  // Best-effort persistence: a real, non-blocked, non-skipped extraction is
+  // stored WITH its governanceStatus (mirroring the vector store's secure-by-
+  // default contract). A store failure must never break the extraction return.
+  await persistExtraction(extraction, input.schema, result.evidence.contentHash);
+
+  return extraction;
+}
+
+/**
+ * Persist a successful extraction into the ExtractionStore as a
+ * {@link StoredExtraction}. Best-effort: any store error is swallowed so it
+ * cannot break the extraction return path.
+ */
+async function persistExtraction(
+  extraction: StructuredExtractionResult,
+  schema: Record<string, unknown>,
+  contentHash: string | undefined
+): Promise<void> {
+  try {
+    const record: StoredExtraction = {
+      ...extraction,
+      id: randomUUID(),
+      schemaHash: schemaHash(schema),
+      contentHash,
+      createdAt: new Date().toISOString()
+    };
+    await createExtractionStore().save(record);
+  } catch {
+    // best-effort: persistence failures never break extraction
+  }
 }
