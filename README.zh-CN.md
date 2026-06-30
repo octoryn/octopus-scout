@@ -16,6 +16,24 @@ Octoryn Web Ingestion Engine：一个可治理 (governance)、可审计 (auditab
 
 ## Quick Start
 
+从 npm 安装(已发布的包——CLI、MCP server、库三用):
+
+```bash
+# 全局 CLI
+npm install -g octopus-scout
+octopus-scout scrape https://example.com --render static
+
+# 或者免安装直接运行
+npx octopus-scout scrape https://example.com --render static
+
+# 把 MCP server 接入 Claude Desktop / Claude Code
+npx octopus-scout-mcp
+```
+
+> 从 npm 安装后,CLI 直接用 `octopus-scout <command>`(或 `npx octopus-scout <command>`);下文的 `npm run cli -- <command>` 是从源码运行的等价写法。
+
+或者从源码运行(用于开发):
+
 ```bash
 npm install
 npm run playwright:install

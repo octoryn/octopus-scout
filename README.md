@@ -16,6 +16,24 @@ This first version optimizes for the normal 80% of the web: fetch, optional brow
 
 ## Quick Start
 
+Install from npm (published package — CLI, MCP server, and library):
+
+```bash
+# global CLI
+npm install -g octopus-scout
+octopus-scout scrape https://example.com --render static
+
+# or run without installing
+npx octopus-scout scrape https://example.com --render static
+
+# wire the MCP server into Claude Desktop / Claude Code
+npx octopus-scout-mcp
+```
+
+> When installed from npm, run the CLI as `octopus-scout <command>` (or `npx octopus-scout <command>`); the `npm run cli -- <command>` form below is the from-source equivalent.
+
+Or run from source (for development):
+
 ```bash
 npm install
 npm run playwright:install
