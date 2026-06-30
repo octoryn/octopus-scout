@@ -1,8 +1,10 @@
 # Octopus Scout
 
 [![CI](https://github.com/octoryn/octopus-scout/actions/workflows/ci.yml/badge.svg)](https://github.com/octoryn/octopus-scout/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/octoryn/octopus-scout?sort=semver)](https://github.com/octoryn/octopus-scout/releases/latest)
 [![License: AGPL-3.0-or-later](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)](.nvmrc)
+[![No Docker required](https://img.shields.io/badge/infra-no%20Docker%20required-success.svg)](#storage)
 
 Octoryn Web Ingestion Engine: a governed, auditable, AI-native ingestion pipeline for web pages, PDFs, and knowledge workflows.
 
