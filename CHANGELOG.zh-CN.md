@@ -5,6 +5,21 @@
 本项目所有重要变更都记录于此。格式基于
 [Keep a Changelog](https://keepachangelog.com/)，并且本项目在到达 1.0 之后将遵循语义化版本 (semantic versioning)。
 
+## [0.2.0] - 2026-07-01
+
+### Added
+
+- 存储：内嵌的 **SQLite** 现在是默认后端（零基础设施），覆盖全部五个存储家族（快照、向量、审计、审批、爬取任务），与文件后端完全平价。通过 `OCTORYN_SCOUT_STORAGE_BACKEND=file` 使用 JSON 文件回退；通过 `DATABASE_URL` 可选启用 Postgres + pgvector。SQLite 作为**可选**原生依赖发布——`npm install` 即便无法编译也绝不失败，驱动不可用时后端会透明回退到文件后端。
+- 抽取：多页（`POST /extract/batch`）与全站（`POST /extract/site`）结构化抽取；每个未被拦截的结果都会持久化进一个受治理的 `ExtractionStore`（file/SQLite/Postgres），并通过 `GET /extractions` / `GET /extractions/:id` 读取（默认排除非 `allowed`，`includeUnapproved` 显式开启）。新增 CLI 命令 + MCP `octoryn_extract_site`。
+- 抽取提供方 `bedrock`：通过一个 Bedrock API key（`AWS_BEARER_TOKEN_BEDROCK` + `OCTORYN_SCOUT_BEDROCK_REGION`）在 **Amazon Bedrock** 上运行 Anthropic 模型，用强制 tool-use 产出 JSON——无需 AWS SDK 依赖。
+- 检索：启发式**查询改写**（`rewrite` 开关）——确定性、离线的查询变体，用倒数排名融合 (RRF) 合并；无需 LLM/key。
+- 集成：`searchAsDocuments` 检索器助手，返回 LangChain `Document` 形状的对象 + `docs/INTEGRATIONS.md` 中可复制粘贴的 LangChain/LlamaIndex 适配器（无 langchain 运行时依赖）。
+- 文档：所有文档现在都是**双语**（English + 简体中文），并带有文件顶部的语言切换。
+
+### Changed
+
+- `npm install`/运行时不再硬性要求构建工具链：`better-sqlite3` 移入 `optionalDependencies`，惰性加载并在失败时优雅回退到文件后端。
+
 ## [0.1.0] - 2026-07-01
 
 首个公开发布版本。

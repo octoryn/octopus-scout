@@ -6,6 +6,21 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 semantic versioning once it reaches 1.0.
 
+## [0.2.0] - 2026-07-01
+
+### Added
+
+- Storage: embedded **SQLite** is now the default backend (zero infrastructure) across all five store families (snapshots, vectors, audit, approvals, crawl jobs), with full File-backend parity. JSON-file fallback via `OCTORYN_SCOUT_STORAGE_BACKEND=file`; optional Postgres + pgvector via `DATABASE_URL`. SQLite ships as an **optional** native dependency — `npm install` never fails to build, and the backend transparently degrades to the file backend when the driver is unavailable.
+- Extraction: multi-page (`POST /extract/batch`) and whole-site (`POST /extract/site`) structured extraction; every non-blocked result is persisted in a governed `ExtractionStore` (file/SQLite/Postgres) and read back via `GET /extractions` / `GET /extractions/:id` (non-`allowed` excluded by default, `includeUnapproved` opt-in). New CLI commands + MCP `octoryn_extract_site`.
+- Extraction provider `bedrock`: Anthropic models on **Amazon Bedrock** via a Bedrock API key (`AWS_BEARER_TOKEN_BEDROCK` + `OCTORYN_SCOUT_BEDROCK_REGION`), using forced tool-use for JSON — no AWS SDK dependency.
+- Retrieval: heuristic **query rewriting** (`rewrite` flag) — deterministic, offline query variants fused with Reciprocal Rank Fusion; no LLM/key required.
+- Integrations: `searchAsDocuments` retriever helper returning LangChain `Document`-shaped objects + `docs/INTEGRATIONS.md` with copy-paste LangChain/LlamaIndex adapters (no langchain runtime dependency).
+- Docs: all documentation is now **bilingual** (English + 简体中文) with a top-of-file language switcher.
+
+### Changed
+
+- `npm install`/runtime no longer hard-requires a build toolchain: `better-sqlite3` moved to `optionalDependencies`, loaded lazily with a graceful file-backend fallback.
+
 ## [0.1.0] - 2026-07-01
 
 First public release.
