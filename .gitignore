@@ -1,0 +1,18 @@
+node_modules/
+dist/
+.env
+.octoryn-scout/
+coverage/
+playwright-report/
+test-results/
+
+# SQLite (embedded default backend) + WAL sidecars
+*.db
+*.db-wal
+*.db-shm
+
+# Tooling / OS
+.eslintcache
+*.log
+.DS_Store
+*.tgz

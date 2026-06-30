@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "octopus-scout": {
+      "command": "node",
+      "args": ["/absolute/path/to/octopus-scout/dist/mcp.js"],
+      "env": {
+        "OCTORYN_SCOUT_DATA_DIR": "/absolute/path/to/octopus-scout/.octoryn-scout",
+        "OPENAI_API_KEY": "sk-...",
+        "OCTORYN_SCOUT_EMBEDDING_PROVIDER": "openai"
+      }
+    }
+  }
+}

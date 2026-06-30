@@ -1,0 +1,49 @@
+services:
+  api:
+    build: .
+    command: npm run dev
+    ports:
+      - "8787:8787"
+    environment:
+      OCTORYN_SCOUT_HOST: 0.0.0.0
+      OCTORYN_SCOUT_PORT: 8787
+      REDIS_URL: redis://redis:6379
+      DATABASE_URL: postgres://octoryn:octoryn@postgres:5432/octopus_scout
+    volumes:
+      - .:/app
+      - /app/node_modules
+    depends_on:
+      - redis
+      - postgres
+
+  worker:
+    build: .
+    command: npm run worker
+    environment:
+      REDIS_URL: redis://redis:6379
+      DATABASE_URL: postgres://octoryn:octoryn@postgres:5432/octopus_scout
+    volumes:
+      - .:/app
+      - /app/node_modules
+    depends_on:
+      - redis
+      - postgres
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: octoryn
+      POSTGRES_PASSWORD: octoryn
+      POSTGRES_DB: octopus_scout
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+volumes:
+  postgres-data:

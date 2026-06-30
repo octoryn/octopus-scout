@@ -1,0 +1,104 @@
+{
+  "name": "octopus-scout",
+  "version": "0.1.0",
+  "description": "Octoryn Web Ingestion Engine: governed, auditable, AI-native web/PDF ingestion.",
+  "license": "AGPL-3.0-or-later",
+  "author": "Octoryn",
+  "type": "module",
+  "keywords": [
+    "web-scraping",
+    "crawler",
+    "markdown",
+    "rag",
+    "knowledge-base",
+    "vector-search",
+    "playwright",
+    "mcp",
+    "governance",
+    "ai-ingestion"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/octoryn/octopus-scout.git"
+  },
+  "homepage": "https://github.com/octoryn/octopus-scout#readme",
+  "bugs": {
+    "url": "https://github.com/octoryn/octopus-scout/issues"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "octopus-scout": "./dist/cli.js",
+    "octopus-scout-mcp": "./dist/mcp.js"
+  },
+  "files": [
+    "dist",
+    "docs",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "worker": "tsx src/worker.ts",
+    "cli": "tsx src/cli.ts",
+    "mcp": "tsx src/mcp.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "coverage": "vitest run --coverage",
+    "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\"",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "playwright:install": "playwright install chromium",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.107.0",
+    "@fastify/cors": "^11.2.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@mozilla/readability": "^0.6.0",
+    "bullmq": "^5.79.2",
+    "commander": "^15.0.0",
+    "fast-xml-parser": "^5.9.3",
+    "fastify": "^5.9.0",
+    "ioredis": "^5.11.1",
+    "jsdom": "^29.1.1",
+    "pdf-parse": "^2.4.5",
+    "pg": "^8.22.0",
+    "playwright": "^1.61.1",
+    "robots-parser": "^3.0.1",
+    "turndown": "^7.2.4",
+    "zod": "^4.4.3"
+  },
+  "optionalDependencies": {
+    "better-sqlite3": "^12.11.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/jsdom": "^28.0.3",
+    "@types/node": "^26.0.1",
+    "@types/pdf-parse": "^1.1.5",
+    "@types/pg": "^8.20.0",
+    "@types/turndown": "^5.0.6",
+    "@vitest/coverage-v8": "^4.1.9",
+    "eslint": "^10.6.0",
+    "prettier": "^3.9.4",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.62.1",
+    "vitest": "^4.1.9"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

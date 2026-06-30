@@ -1,0 +1,335 @@
+# Octopus Scout
+
+Octoryn Web Ingestion Engine: a governed, auditable, AI-native ingestion pipeline for web pages, PDFs, and knowledge workflows.
+
+This first version optimizes for the normal 80% of the web: fetch, optional browser render, extract, normalize to Markdown/JSON, build evidence anchors, cache/version the result, and expose it through API, CLI, queue, and MCP-compatible tooling.
+
+> 📐 **架构与技术说明、与 Firecrawl 对标**：见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
+
+## Quick Start
+
+```bash
+npm install
+npm run playwright:install
+npm run dev
+```
+
+```bash
+curl -s http://localhost:8787/health
+curl -s http://localhost:8787/scrape \
+  -H 'content-type: application/json' \
+  -d '{"url":"https://example.com","render":"static"}'
+```
+
+> 🔒 The SSRF guard blocks private/loopback hosts by default — set
+> `OCTORYN_SCOUT_ALLOW_PRIVATE_HOSTS=true` to scrape `localhost` or other private
+> addresses during local dev and tests.
+
+CLI:
+
+```bash
+npm run cli -- scrape https://example.com --render static
+npm run cli -- sitemap https://example.com/sitemap.xml
+npm run cli -- map https://example.com --search docs --limit 100
+npm run cli -- crawl https://example.com --max-depth 1 --max-pages 25
+npm run cli -- export https://example.com --embed --jsonl
+npm run cli -- ingest https://example.com
+npm run cli -- search "what is this page about" --top-k 5 --mode hybrid
+npm run cli -- extract https://example.com --schema '{"type":"object","properties":{"title":{"type":"string"}}}'
+npm run cli -- ingest-site https://example.com --max-depth 1 --max-pages 25
+npm run cli -- crawl https://example.com --resume <crawlId>
+npm run cli -- crawls
+npm run cli -- retention --snapshot-versions 5 --audit-days 90
+npm run cli -- refresh --max-age-days 7
+npm run cli -- approvals pending
+npm run cli -- approve <approval-id> --by you@org.com --note "reviewed"
+```
+
+Use as a library:
+
+The package (`octopus-scout`) exposes the engine through its `dist/index.js` entrypoint,
+so you can call the pipeline directly instead of going through the HTTP/CLI/MCP surfaces:
+
+```ts
+import { scrapeUrl, searchKnowledge } from "octopus-scout";
+
+const result = await scrapeUrl({ url: "https://example.com", render: "static" });
+console.log(result.extraction.markdown);
+
+const hits = await searchKnowledge({ query: "what is this page about", topK: 5 });
+console.log(hits);
+```
+
+### Storage
+
+No Docker or external database is required. By default octopus-scout uses an
+embedded **SQLite** database (a single `octopus-scout.db` file under the data
+dir) for snapshots, vectors, audit, approvals, and crawl jobs — clone and run.
+
+> **Works on any platform.** SQLite is provided by the optional native module
+> `better-sqlite3`; `npm install` never fails if it can't build, and at runtime
+> octopus-scout uses SQLite when the driver is available and otherwise
+> transparently falls back to the file backend (with a one-time notice). So the
+> clone-and-run promise holds even where no prebuilt binary or build toolchain
+> exists.
+
+- Set `OCTORYN_SCOUT_STORAGE_BACKEND=file` for the plain-JSON fallback (files
+  under `.octoryn-scout/`).
+- Set `DATABASE_URL=postgres://...` to use **Postgres + pgvector** instead,
+  for large corpora or multi-instance deployments. When `REDIS_URL` is set,
+  `/jobs/scrape` and `npm run worker` use BullMQ for durable queues.
+
+Postgres and Redis are entirely optional; bring them in only when you outgrow
+the embedded defaults:
+
+```bash
+docker compose up
+```
+
+## API
+
+Ingestion:
+
+- `GET /health`
+- `POST /fetch` static fetch with robots and rate-limit policy
+- `POST /render` Playwright browser render
+- `POST /scrape` full ingestion pipeline (hash dedup + governance gating; supports pre-scrape `actions` on browser renders)
+- `POST /sitemap` sitemap URL extraction
+- `POST /map` fast site URL discovery (sitemap + root-page links, same-origin/subdomain + path/search filters) — cf. Firecrawl `/map`
+- `POST /crawl` depth-bounded crawl (BFS, sitemap seed, same-origin + regex filters; `resumeCrawlId` to continue a checkpointed crawl)
+- `GET /crawls` / `GET /crawls/:id` list / read persisted crawl jobs
+- `POST /jobs/scrape` / `POST /jobs/crawl` / `POST /jobs/ingest-site` enqueue durable jobs when Redis is configured
+- `GET /jobs/:id?queue=scrape|crawl|site|dead` job state / result / failure
+
+Knowledge & retrieval:
+
+- `POST /export` chunk + (optionally) embed a page into a RAG document / JSONL
+- `POST /ingest` scrape → chunk → embed → store into the vector index
+- `POST /ingest-site` crawl a whole site and index every page into the vector store
+- `POST /search` retrieval over the knowledge base — `mode` = `vector` | `lexical` | `hybrid` (default), optional `rerank`; returns chunks with citation anchors, trust, and governance status
+- `POST /extract` LLM structured extraction — scrape a URL and return JSON conforming to a supplied JSON Schema (cf. Firecrawl `/extract`)
+- `GET /versions?url=` version history (content-hash snapshots) for a URL
+- `GET /snapshots/:id` read a saved snapshot
+
+Governance & operations:
+
+- `GET /governance/approvals?status=` list approval requests (pending/approved/rejected)
+- `GET /governance/approvals/:id` read one approval request
+- `POST /governance/approvals/:id/decision` approve/reject (records an audit event)
+- `GET /audit?target=&action=` query the append-only audit trail
+- `POST /admin/retention` prune old snapshot versions, audit events, and decided approvals
+- `POST /admin/refresh` run a staleness sweep — re-ingest snapshots older than a threshold
+- `GET /events` tail recent internal events (scrape/approval/crawl/ingest)
+- `GET /webhooks` webhook delivery log (status, attempts, response code)
+- `GET /metrics` (`?format=prometheus`) request/status/governance counters + per-domain stats
+- `GET /ready` readiness probe (checks Redis/Postgres reachability when configured)
+
+## Pipeline
+
+```text
+URL Input
+  -> Fetcher / Browser Renderer (pooled) / Crawler (depth-bounded BFS)
+  -> Content Extractor
+  -> Markdown / JSON Normalizer
+  -> Evidence + Citation Builder
+  -> Governance (trust score, sensitive-domain gating, audit, human approval)
+  -> Cache / Hash-Dedup / Versioning
+  -> Knowledge Pipeline (chunking + embedding hook + RAG/JSONL export)
+  -> Agent / RAG / Workflow (CLI, HTTP API, MCP server)
+```
+
+## Knowledge & RAG
+
+`POST /export` (or `cli export`) chunks a page's Markdown by heading structure into
+token-bounded, overlapping chunks, maps each chunk back to a citation anchor and to
+its character offsets in the source Markdown, and emits a `RagDocument` (or JSONL, one
+line per chunk).
+
+`POST /ingest` runs the full read-path — scrape → chunk → embed → store — into a vector
+index, and `POST /search` retrieves the nearest chunks for a query, each carrying its
+source URL, citation anchor, trust score, and governance status. Content blocked by
+governance is never indexed; `requires_approval` content is indexed with its status so
+search can filter it (`includeBlocked`, `minTrust`, `url`).
+
+Retrieval (`POST /search`) supports three modes: `vector` (embedding cosine),
+`lexical` (SQLite FTS5 by default, in-memory BM25 on the file backend, Postgres full-text on Postgres), and
+`hybrid` (default) which fuses both candidate sets with **Reciprocal Rank Fusion**.
+Results then pass through a pluggable reranker (`OCTORYN_SCOUT_RERANK_PROVIDER` =
+`heuristic` default | `cohere` | `voyage` | `none`); the heuristic reranker is
+deterministic and offline, and Cohere/Voyage activate when their API key is set.
+
+`POST /extract` (or `cli extract`) performs **LLM structured extraction**: it scrapes a
+URL, then returns JSON conforming to a JSON Schema you supply. The provider is pluggable
+(`OCTORYN_SCOUT_EXTRACTION_PROVIDER` = `none` default | `anthropic` | `openai`): Anthropic
+uses the official SDK with `claude-opus-4-8` and `output_config` json-schema output, OpenAI
+uses json-schema `response_format`; governance-blocked pages are skipped, never extracted.
+
+Embeddings are produced through a pluggable `EmbeddingProvider`
+(`OCTORYN_SCOUT_EMBEDDING_PROVIDER` = `stub` | `voyage` | `openai`): the default is a
+deterministic, network-free stub, and Voyage/OpenAI activate when their API key is set
+(`VOYAGE_API_KEY` / `OPENAI_API_KEY`), falling back to the stub otherwise.
+
+> ⚠️ **The default embedding provider is a deterministic, NON-SEMANTIC stub** — it
+> produces stable offline vectors for testing but does not capture meaning, so `vector`
+> and `hybrid` search are only semantically meaningful once you set
+> `OCTORYN_SCOUT_EMBEDDING_PROVIDER` to `voyage` or `openai` (with the matching API key). The vector
+> store is the embedded **SQLite** backend (in-process cosine) by default; when `DATABASE_URL`
+> is set it uses **pgvector** (a `vector(dim)` column + HNSW cosine index, `<=>` distance)
+> and transparently falls back to jsonb + in-process cosine if the `vector` extension is
+> unavailable.
+
+## Access control
+
+Set `OCTORYN_SCOUT_AUTH_MODE` (`off` | `write` | `all`) and `OCTORYN_SCOUT_API_KEYS`
+(comma-separated) to require an API key via `Authorization: Bearer <key>` or
+`x-api-key`. `write` protects all mutating requests plus the governance-sensitive
+`/governance` and `/audit` reads; `all` protects everything except `GET /health`. With
+no keys configured, auth is disabled (backward compatible).
+
+## Per-domain policy
+
+Point `OCTORYN_SCOUT_POLICY_FILE` (or drop `<dataDir>/policy.json`) at a
+`GovernancePolicy`: per-domain `action` (`allow` | `block` | `require_approval`),
+`rateLimitMs`, and `trustOverride`. Policy escalation is applied on top of the
+keyword/robots decision (it can only tighten, never relax a block), with the
+most-specific domain match winning.
+
+```json
+{
+  "version": "v1",
+  "defaultAction": "allow",
+  "domains": [{ "domain": "example.com", "action": "require_approval", "rateLimitMs": 3000 }]
+}
+```
+
+## Scale & reliability
+
+- **Browser pool** — a single Chromium instance with a bounded concurrent-page
+  semaphore (`OCTORYN_SCOUT_BROWSER_MAX_PAGES`) and idle auto-shutdown.
+- **Distributed rate limiting** — per-domain spacing is enforced across processes via
+  Redis when `REDIS_URL` is set (atomic EVAL), falling back to in-memory; honors
+  robots `crawl-delay`.
+- **Dead-letter queue** — scrape/crawl jobs that exhaust retries are pushed to a
+  dead-letter queue with a classified failure reason (`timeout`, `robots_blocked`,
+  `http_error`, `render_error`, `unknown`).
+- **Resumable crawls** — crawl jobs checkpoint their frontier/visited/results to a
+  store every `OCTORYN_SCOUT_CRAWL_CHECKPOINT_EVERY` pages; `POST /crawl` with
+  `resumeCrawlId` continues from the last checkpoint. `GET /crawls` lists jobs.
+- **Whole-site ingestion** — `POST /ingest-site` crawls a site and indexes every
+  allowed page into the vector store in one call; `POST /jobs/ingest-site` runs it as a
+  durable BullMQ job (poll `GET /jobs/:id`), with exhausted retries routed to the
+  dead-letter queue.
+- **Distributed scheduler lock** — the scheduled staleness sweep is wrapped in a Redis
+  lock (`SET NX PX` + Lua compare-del), so multiple instances don't double-sweep; with no
+  Redis it degrades to single-instance run-anyway.
+- **Retention** — `POST /admin/retention` (or `cli retention`) prunes snapshot versions
+  beyond `OCTORYN_SCOUT_SNAPSHOT_RETENTION_VERSIONS`/`_DAYS`, audit events past
+  `OCTORYN_SCOUT_AUDIT_RETENTION_DAYS`, and already-decided approvals (pending approvals
+  are never pruned). `0` = keep everything.
+- **Observability** — `GET /metrics` (JSON or Prometheus) and `GET /ready`.
+
+## Eventing & automation
+
+The engine emits internal events (`scrape.completed`, `approval.requested`,
+`approval.decided`, `crawl.completed`, `site_ingest.completed`) on an in-process bus;
+`GET /events` tails them.
+
+- **Webhooks** — set `OCTORYN_SCOUT_WEBHOOK_URLS` (comma list) to forward events as
+  JSON POSTs. When `OCTORYN_SCOUT_WEBHOOK_SECRET` is set each delivery carries an
+  `x-octoryn-signature: sha256=<hmac>` header for verification; deliveries retry with
+  backoff up to `OCTORYN_SCOUT_WEBHOOK_MAX_ATTEMPTS` and are logged at `GET /webhooks`.
+  Filter which events fire with `OCTORYN_SCOUT_WEBHOOK_EVENTS`. This closes the
+  human-in-the-loop: an `approval.requested` webhook can page a reviewer.
+- **Scheduled refresh** — with `OCTORYN_SCOUT_SCHEDULE_ENABLED=true`, a background sweep
+  every `OCTORYN_SCOUT_REFRESH_INTERVAL_MS` re-ingests snapshots older than
+  `OCTORYN_SCOUT_STALENESS_MAX_AGE_DAYS` (up to `OCTORYN_SCOUT_REFRESH_LIMIT` per run),
+  keeping the knowledge base fresh. Trigger manually with `POST /admin/refresh` or
+  `cli refresh`.
+
+## Discovery & interaction
+
+- **`POST /map`** (or `cli map`) — fast URL discovery for a site: seeds from sitemaps and
+  the root page's links, dedupes, filters by same-origin/subdomain and `includePaths` /
+  `excludePaths` / `search`, and caps at `limit`. No per-URL scraping — it's a cheap map.
+- **Pre-scrape actions** — `/scrape` and `/render` accept an `actions` array executed in
+  order on browser renders before the DOM is captured: `wait`, `waitForSelector`, `click`,
+  `scroll`, `type`, `press`, `screenshot` (per-action screenshots returned in
+  `actionScreenshots`). Useful for cookie banners, "load more", and tabbed content.
+- **Stealth-plus** — `OCTORYN_SCOUT_STEALTH=true` renders with comprehensive,
+  hand-rolled (zero-dependency) anti-detection: realistic Chrome UA + UA-CH headers,
+  locale/timezone/viewport, automation launch-flag hiding, and an init script that patches
+  `navigator.webdriver`/`languages`/`plugins`, stubs `window.chrome`, and spoofs WebGL
+  vendor/renderer + `hardwareConcurrency`. `OCTORYN_SCOUT_EXTRA_HEADERS` (JSON) injects
+  custom headers on both static fetch and render.
+- **BYO proxy** — `OCTORYN_SCOUT_PROXY_URLS` (comma list, `http://user:pass@host:port`)
+  routes requests through your proxies with round-robin rotation: Playwright-native on the
+  render path, and a hand-rolled `node:net`/`node:tls` **CONNECT tunnel** on the static
+  path (zero dependencies). Bring your own proxies — there is no hosted proxy pool.
+- **JS-challenge handling** — Cloudflare-style "Just a moment" interstitials are detected
+  and waited out by the real browser executing the challenge (no solving). `FetchProvider`
+  is a pluggable seam (`LocalFetchProvider` today) for future backends.
+- **CAPTCHA** — a `CaptchaSolver` seam exists but ships only a `NoopCaptchaSolver`
+  placeholder (TODO). Solving modern CAPTCHAs requires an external service/model and is
+  intentionally not built in.
+- **Out of scope (by design):** a hosted proxy pool and adversarial-grade anti-bot
+  evasion. The stealth + BYO-proxy + challenge-waiting above handle most of the everyday
+  web; hard targets behind aggressive bot defenses or CAPTCHAs are not guaranteed.
+
+## Security
+
+- **SSRF protection** — every outbound fetch/render runs through a URL guard that
+  rejects non-`http(s)` schemes and any host resolving to a private/loopback/link-local
+  address (incl. the cloud metadata IP `169.254.169.254`), defeating DNS-rebinding by
+  checking the _resolved_ IP. Override per environment with
+  `OCTORYN_SCOUT_ALLOW_PRIVATE_HOSTS=true` (for localhost dev/tests) or scope with
+  `OCTORYN_SCOUT_HOST_ALLOWLIST` / `_BLOCKLIST`.
+- **Content limits** — responses over `OCTORYN_SCOUT_MAX_CONTENT_BYTES` are rejected
+  (streamed read aborts early), and only `OCTORYN_SCOUT_ALLOWED_CONTENT_TYPES` are
+  processed; bodies are charset-decoded from the content-type header.
+- **API-key auth** — see Access control above; `/governance`, `/audit`, and `/admin`
+  reads/writes are protected in `write` mode.
+
+## MCP server (Claude & Codex)
+
+The engine ships an MCP stdio server exposing eight tools — `octoryn_scrape`,
+`octoryn_crawl`, `octoryn_map`, `octoryn_export`, `octoryn_ingest`,
+`octoryn_ingest_site`, `octoryn_search`, `octoryn_extract` — so agents can scrape, crawl,
+map, ingest, **semantically search the governed knowledge base**, and run structured
+extraction directly.
+
+```bash
+npm run build         # produces dist/mcp.js
+npx octopus-scout-mcp  # or: node dist/mcp.js
+```
+
+Ready-to-paste configs live in [`docs/mcp/`](docs/mcp/) (Claude Code `.mcp.json`,
+Claude Desktop, Codex `config.toml`); full guide in [docs/MCP.md](docs/MCP.md).
+
+## Governance Defaults
+
+The engine respects `robots.txt` by default, applies per-domain rate limiting, records
+content hashes and source metadata, creates citation anchors from extracted Markdown,
+and assigns a basic source trust score.
+
+Medical/legal/financial content is flagged as `requires_approval`: a pending
+`ApprovalRecord` is created and the page waits for a human decision via
+`/governance/approvals/:id/decision` (or `cli approve/reject`). Every scrape, approval
+request, and decision is written to an append-only **audit trail** (`/audit`).
+`OCTORYN_SCOUT_APPROVAL_MODE` (`off` | `flag` | `enforce`) controls how strict gating is.
+
+Re-scraping unchanged content is **deduplicated** by content hash, and each distinct
+version is retained as a queryable snapshot (`/versions?url=`).
+
+These policies are intentionally conservative and easy to replace with stricter Octoryn governance rules.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and the local check gate
+(`typecheck` + `format:check` + `test`). Security issues: please follow
+[SECURITY.md](SECURITY.md) rather than opening a public issue.
+
+## License
+
+[AGPL-3.0-or-later](LICENSE) © Octoryn. Network use is distribution: if you run a
+modified version as a service, the AGPL requires you to offer your modified source to its
+users. This is deliberate — it keeps the engine and its derivatives open.

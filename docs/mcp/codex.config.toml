@@ -1,0 +1,11 @@
+# Add to ~/.codex/config.toml
+# Replace the args path with the absolute path to your built dist/mcp.js.
+
+[mcp_servers.octopus-scout]
+command = "node"
+args = ["/absolute/path/to/octopus-scout/dist/mcp.js"]
+
+[mcp_servers.octopus-scout.env]
+OCTORYN_SCOUT_DATA_DIR = "/absolute/path/to/octopus-scout/.octoryn-scout"
+OPENAI_API_KEY = "sk-..."
+OCTORYN_SCOUT_EMBEDDING_PROVIDER = "openai"
