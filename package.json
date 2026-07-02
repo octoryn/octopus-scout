@@ -3,7 +3,7 @@
   "version": "0.2.0",
   "description": "Octoryn Web Ingestion Engine: governed, auditable, AI-native web/PDF ingestion.",
   "license": "Apache-2.0",
-  "author": "Octoryn",
+  "author": "Ran Tao <ran@octopusos.ai>",
   "type": "module",
   "keywords": [
     "web-scraping",
