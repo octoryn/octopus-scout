@@ -8,6 +8,10 @@
 [![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)](.nvmrc)
 [![No Docker required](https://img.shields.io/badge/infra-no%20Docker%20required-success.svg)](#storage)
 
+> **Part of [Octopus Core](https://github.com/octoryn) — the open infrastructure stack for governed AI.** One job per repo, along the agent lifecycle: [Scout](https://github.com/octoryn/octopus-scout) · [Observe](https://github.com/octoryn/octopus-observe) · [Experience](https://github.com/octoryn/octopus-experience) · [Blackboard](https://github.com/octoryn/octopus-blackboard) · [Runtime](https://github.com/octoryn/octopus-runtime) · [Replay](https://github.com/octoryn/octopus-replay) — with [Inspect](https://github.com/octoryn/octopus-inspect) governing every stage.
+>
+> **This repo — Scout · Collect:** Collect evidence, not webpages.
+
 Octoryn Web Ingestion Engine: a governed, auditable, AI-native ingestion pipeline for web pages, PDFs, and knowledge workflows.
 
 This first version optimizes for the normal 80% of the web: fetch, optional browser render, extract, normalize to Markdown/JSON, build evidence anchors, cache/version the result, and expose it through API, CLI, queue, and MCP-compatible tooling.

@@ -8,6 +8,10 @@
 [![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)](.nvmrc)
 [![No Docker required](https://img.shields.io/badge/infra-no%20Docker%20required-success.svg)](#storage)
 
+> **[Octopus Core](https://github.com/octoryn) 的一部分 —— 受治理 AI 的开源基础设施栈。** 每个仓库只做一件事，沿 agent 生命周期组合：[Scout](https://github.com/octoryn/octopus-scout) · [Observe](https://github.com/octoryn/octopus-observe) · [Experience](https://github.com/octoryn/octopus-experience) · [Blackboard](https://github.com/octoryn/octopus-blackboard) · [Runtime](https://github.com/octoryn/octopus-runtime) · [Replay](https://github.com/octoryn/octopus-replay) —— [Inspect](https://github.com/octoryn/octopus-inspect) 横贯每一环做治理。
+>
+> **本仓库 —— Scout · 采集：** 采集证据，而非网页。
+
 Octoryn Web Ingestion Engine：一个可治理 (governance)、可审计 (auditable)、AI 原生的网页、PDF 与知识工作流摄取管线 (ingestion pipeline)。
 
 这个首发版本针对常规的 80% 网络场景做了优化：抓取 (fetch)、可选的浏览器渲染 (render)、抽取 (extract)、归一化为 Markdown/JSON、构建证据锚点 (evidence anchor)、缓存/版本化结果，并通过 API、CLI、队列以及兼容 MCP 的工具将其暴露出来。
