@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/octoryn/octopus-scout/actions/workflows/ci.yml/badge.svg)](https://github.com/octoryn/octopus-scout/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/octoryn/octopus-scout?sort=semver)](https://github.com/octoryn/octopus-scout/releases/latest)
-[![License: AGPL-3.0-or-later](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue.svg)](LICENSE)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)](.nvmrc)
 [![No Docker required](https://img.shields.io/badge/infra-no%20Docker%20required-success.svg)](#storage)
 
@@ -380,6 +380,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and the local check gate
 
 ## License
 
-[AGPL-3.0-or-later](LICENSE) © Octoryn. Network use is distribution: if you run a
-modified version as a service, the AGPL requires you to offer your modified source to its
-users. This is deliberate — it keeps the engine and its derivatives open.
+[Apache-2.0](LICENSE) © Octoryn. A permissive license — use, modify, and distribute
+(including in commercial and closed-source products) under its terms; you must preserve the
+license and attribution notices.

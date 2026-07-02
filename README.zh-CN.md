@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/octoryn/octopus-scout/actions/workflows/ci.yml/badge.svg)](https://github.com/octoryn/octopus-scout/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/octoryn/octopus-scout?sort=semver)](https://github.com/octoryn/octopus-scout/releases/latest)
-[![License: AGPL-3.0-or-later](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue.svg)](LICENSE)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)](.nvmrc)
 [![No Docker required](https://img.shields.io/badge/infra-no%20Docker%20required-success.svg)](#storage)
 
@@ -371,6 +371,5 @@ Claude Desktop、Codex `config.toml`）；完整指南见 [docs/MCP.zh-CN.md](do
 
 ## License
 
-[AGPL-3.0-or-later](LICENSE) © Octoryn。网络使用即分发：如果你将
-一个修改版作为服务运行，AGPL 要求你向其用户提供你修改后的源码。这是
-刻意为之——它让引擎及其衍生作品保持开放。
+[Apache-2.0](LICENSE) © Octoryn。一个宽松许可证——可在其条款下使用、修改和分发
+（包括用于商业与闭源产品），但你必须保留许可证与署名声明。

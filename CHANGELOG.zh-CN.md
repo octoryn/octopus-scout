@@ -18,6 +18,7 @@
 
 ### Changed
 
+- 许可证从 AGPL-3.0-or-later 变更为 **Apache-2.0**（宽松许可——在其条款下允许商业与闭源使用）。
 - `npm install`/运行时不再硬性要求构建工具链：`better-sqlite3` 移入 `optionalDependencies`，惰性加载并在失败时优雅回退到文件后端。
 
 ## [0.1.0] - 2026-07-01

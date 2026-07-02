@@ -19,6 +19,7 @@ semantic versioning once it reaches 1.0.
 
 ### Changed
 
+- License changed from AGPL-3.0-or-later to **Apache-2.0** (permissive — commercial and closed-source use permitted under its terms).
 - `npm install`/runtime no longer hard-requires a build toolchain: `better-sqlite3` moved to `optionalDependencies`, loaded lazily with a graceful file-backend fallback.
 
 ## [0.1.0] - 2026-07-01
