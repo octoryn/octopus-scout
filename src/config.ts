@@ -39,7 +39,13 @@ const configSchema = z.object({
   chunkMaxTokens: z.coerce.number().int().positive().default(800),
   chunkOverlapTokens: z.coerce.number().int().nonnegative().default(100),
   approvalMode: z.enum(["off", "flag", "enforce"]).default("flag"),
-  embeddingProvider: z.enum(["stub", "voyage", "openai"]).default("stub"),
+  // "lexical" (default) = built-in offline, deterministic keyword-overlap
+  // embedder. "stub" is a deprecated alias kept for backward compatibility and
+  // normalized to "lexical". "voyage"/"openai" are real semantic providers.
+  embeddingProvider: z
+    .enum(["lexical", "stub", "voyage", "openai"])
+    .default("lexical")
+    .transform((v) => (v === "stub" ? "lexical" : v)),
   embeddingModel: z.string().optional(),
   voyageApiKey: z.string().optional(),
   openaiApiKey: z.string().optional(),

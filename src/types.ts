@@ -260,8 +260,10 @@ export interface RagDocument {
 
 /**
  * Pluggable embedding hook. The default implementation is a deterministic,
- * network-free stub; real providers (Voyage, OpenAI, etc.) implement this
- * interface and are injected where embeddings are produced.
+ * offline lexical (keyword-overlap) embedder — good enough to make vector search
+ * useful out of the box, but NOT semantic. Real semantic providers (Voyage,
+ * OpenAI, etc.) implement this same interface and are injected where embeddings
+ * are produced.
  */
 export interface EmbeddingProvider {
   readonly name: string;

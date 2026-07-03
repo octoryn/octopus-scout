@@ -14,10 +14,10 @@ import { rewriteQuery } from "../src/knowledge/retrieval.js";
  *
  * rewriteQuery is pure and dependency-free, so it is tested directly. The
  * rewrite:true search reuses the same hermetic fixture pattern as
- * retrieval.test.ts: a localhost node:http server, the deterministic stub
- * embedding provider, and a file-backed vector store in a temp dir. The stub
- * embedder is hash-based (not semantic), so we exercise lexical mode for the
- * "clearly-matching keyword" assertion and never assert cosine sign.
+ * retrieval.test.ts: a localhost node:http server, the default offline lexical
+ * embedding provider, and a file-backed vector store in a temp dir. The lexical
+ * embedder is keyword-overlap-based (not semantic), so we exercise lexical mode
+ * for the "clearly-matching keyword" assertion and never assert cosine sign.
  */
 
 describe("rewriteQuery: heuristic, deterministic variants", () => {

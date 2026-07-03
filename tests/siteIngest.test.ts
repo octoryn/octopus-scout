@@ -225,8 +225,8 @@ describe("siteIngest: hermetic whole-site crawl + index + search", () => {
     expect(search.hits.length).toBeLessThanOrEqual(5);
     const top = search.hits[0];
     expect(top.sourceUrl).toContain("127.0.0.1");
-    // The stub embedder is hash-based, not semantic, so the cosine score sign is
-    // arbitrary — only assert it is a finite number.
+    // The default embedder is the offline lexical (keyword-overlap) embedder, not
+    // semantic — only assert the score is a finite number (hybrid RRF fusion).
     expect(Number.isFinite(top.score)).toBe(true);
   });
 });

@@ -6,6 +6,35 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 semantic versioning once it reaches 1.0.
 
+## [0.3.0] - 2026-07-03
+
+### Changed
+
+- **Semantic/vector search now works out of the box — no API key, no config.**
+  The default embedder was an inert stub (`stub-hash-256`) that hashed the whole
+  input string, so two texts sharing every word but one character got unrelated
+  vectors: the vector path was hash noise and effectively dead without wiring an
+  external provider. It is replaced by a deterministic, **zero-dependency,
+  offline lexical embedder** (`lexical-hash-256`): tokenize → feature-hash tokens
+  into 256 signed buckets with a sub-linear `1+log(tf)` weight → L2-normalize, so
+  cosine ranks by weighted keyword overlap (BM25-lite). `scout search` returns
+  keyword-relevant results on a fresh clone. It is **honestly non-semantic** (no
+  synonyms/paraphrase; `activeEmbeddingInfo().semantic` is `false` for it) —
+  configure Voyage or OpenAI for true semantic search.
+
+### Added
+
+- `LexicalEmbeddingProvider` (default) and `LEXICAL_PROVIDER_NAME` exports. The
+  `EmbeddingProvider` interface is unchanged, so custom embedders still plug in.
+
+### Migration
+
+- The `EmbeddingProvider` API is unchanged and existing configs keep working
+  (`OCTORYN_SCOUT_EMBEDDING_PROVIDER=stub` is accepted as a deprecated alias for
+  `lexical`). **Re-ingest any corpus that was indexed with the old stub** — its
+  stored vectors are hash noise and won't rank against new lexical query vectors;
+  mixing old and new embeddings in one store degrades results until re-indexed.
+
 ## [0.2.0] - 2026-07-01
 
 ### Added

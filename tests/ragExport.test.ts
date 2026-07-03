@@ -130,7 +130,7 @@ describe("toJsonl", () => {
 });
 
 describe("buildRagDocument with embed:true", () => {
-  it("attaches a 256-dim vector to every chunk via the stub provider", async () => {
+  it("attaches a 256-dim vector to every chunk via the default lexical provider", async () => {
     const dims = getEmbeddingProvider().dimensions;
     expect(dims).toBe(256);
 
@@ -146,7 +146,7 @@ describe("buildRagDocument with embed:true", () => {
       }
     }
 
-    // Stub is deterministic: same content -> same vector.
+    // The lexical embedder is deterministic: same content -> same vector.
     const again = await buildRagDocument(makeScrapeResult(), { embed: true });
     expect(again.chunks[0].embedding).toEqual(doc.chunks[0].embedding);
 

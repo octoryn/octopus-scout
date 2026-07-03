@@ -55,15 +55,16 @@ export async function checkReadiness(): Promise<ReadinessReport> {
     }
   }
 
-  // The stub embedder is a valid mode, so this never flips report.ok to false;
-  // it just makes /ready visibly report when vector search is non-semantic.
+  // The lexical embedder is a valid mode, so this never flips report.ok to
+  // false; it just makes /ready visibly report when search is keyword-overlap
+  // (lexical) rather than true semantic.
   const embedding = activeEmbeddingInfo();
   checks.push({
     name: "embeddings",
     ok: true,
     detail: embedding.semantic
-      ? `provider ${embedding.provider}`
-      : `provider ${embedding.provider} (non-semantic stub — vector search is meaningless)`
+      ? `provider ${embedding.provider} (semantic)`
+      : `provider ${embedding.provider} (offline lexical keyword-overlap — useful out of the box, not semantic; set a real provider for semantic search)`
   });
 
   return {

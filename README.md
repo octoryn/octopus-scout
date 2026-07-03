@@ -219,18 +219,24 @@ the same secure-by-default contract as search.
 > snippets (octopus-scout adds no framework runtime dependency).
 
 Embeddings are produced through a pluggable `EmbeddingProvider`
-(`OCTORYN_SCOUT_EMBEDDING_PROVIDER` = `stub` | `voyage` | `openai`): the default is a
-deterministic, network-free stub, and Voyage/OpenAI activate when their API key is set
-(`VOYAGE_API_KEY` / `OPENAI_API_KEY`), falling back to the stub otherwise.
+(`OCTORYN_SCOUT_EMBEDDING_PROVIDER` = `lexical` | `voyage` | `openai`): the default is a
+built-in **offline lexical embedder**, and Voyage/OpenAI activate when their API key is set
+(`VOYAGE_API_KEY` / `OPENAI_API_KEY`), falling back to the lexical embedder otherwise.
 
-> ⚠️ **The default embedding provider is a deterministic, NON-SEMANTIC stub** — it
-> produces stable offline vectors for testing but does not capture meaning, so `vector`
-> and `hybrid` search are only semantically meaningful once you set
-> `OCTORYN_SCOUT_EMBEDDING_PROVIDER` to `voyage` or `openai` (with the matching API key). The vector
-> store is the embedded **SQLite** backend (in-process cosine) by default; when `DATABASE_URL`
-> is set it uses **pgvector** (a `vector(dim)` column + HNSW cosine index, `<=>` distance)
-> and transparently falls back to jsonb + in-process cosine if the `vector` extension is
-> unavailable.
+> ✅ **Works out of the box, offline, with no API key.** The default `lexical` embedder is a
+> zero-config, deterministic, dependency-free **keyword-overlap retriever** (a BM25-lite
+> feature-hashing vectorizer): it tokenizes, hashes tokens into a fixed 256-dim vector with a
+> sub-linear term-frequency weight, and L2-normalizes so cosine similarity ranks by weighted
+> shared-keyword overlap. `vector` and `hybrid` search return genuinely useful results
+> immediately — good enough to be useful out of the box.
+>
+> ⚠️ **It is NOT semantic.** The lexical embedder does not understand synonyms, paraphrase, or
+> cross-lingual meaning. For **true semantic search**, set `OCTORYN_SCOUT_EMBEDDING_PROVIDER`
+> to `voyage` or `openai` (with the matching API key). (`stub` is still accepted as a
+> deprecated alias for `lexical`.) The vector store is the embedded **SQLite** backend
+> (in-process cosine) by default; when `DATABASE_URL` is set it uses **pgvector** (a
+> `vector(dim)` column + HNSW cosine index, `<=>` distance) and transparently falls back to
+> jsonb + in-process cosine if the `vector` extension is unavailable.
 
 ## Access control
 

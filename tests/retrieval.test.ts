@@ -158,9 +158,10 @@ describe("retrieval: hermetic ingest + search (stub embeddings, file store)", ()
 
     const top = search.hits[0];
     expect(top.sourceUrl).toBe(ingest.sourceUrl);
-    // The stub embedder is hash-based, not semantic, so the cosine score sign is
-    // arbitrary — only assert it is a finite number. Real providers yield ranked
-    // scores; semantic ordering is not testable with the deterministic stub.
+    // The default embedder is the offline lexical (keyword-overlap) embedder, not
+    // a semantic one, but the distinctive query shares keywords with the page, so
+    // it retrieves correctly out of the box. Assert the score is finite; the exact
+    // magnitude depends on hybrid RRF fusion (vector + BM25).
     expect(Number.isFinite(top.score)).toBe(true);
   });
 

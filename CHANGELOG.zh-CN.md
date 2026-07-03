@@ -5,6 +5,32 @@
 本项目所有重要变更都记录于此。格式基于
 [Keep a Changelog](https://keepachangelog.com/)，并且本项目在到达 1.0 之后将遵循语义化版本 (semantic versioning)。
 
+## [0.3.0] - 2026-07-03
+
+### 变更
+
+- **语义/向量搜索现在开箱即用 —— 无需 API key、无需配置。** 原默认嵌入器是一个
+  惰性桩(`stub-hash-256`),对整段输入字符串做哈希,因此两段仅差一个字符、其余
+  词全相同的文本会得到毫不相关的向量:向量路径纯是哈希噪声,不接外部 provider
+  就形同虚设。现替换为确定性、**零依赖、离线的词法嵌入器**(`lexical-hash-256`):
+  分词 → 将 token 特征哈希进 256 个带符号桶、以次线性 `1+log(tf)` 加权 → L2 归一化,
+  余弦相似度即按加权关键词重叠排序(BM25-lite)。`scout search` 在全新克隆上即可
+  返回关键词相关结果。它**诚实地非语义**(无同义词/复述;其
+  `activeEmbeddingInfo().semantic` 为 `false`)—— 需真正语义搜索请配置 Voyage 或
+  OpenAI。
+
+### 新增
+
+- 导出 `LexicalEmbeddingProvider`(默认)与 `LEXICAL_PROVIDER_NAME`。
+  `EmbeddingProvider` 接口未变,自定义嵌入器仍可照常接入。
+
+### 迁移
+
+- `EmbeddingProvider` API 未变,既有配置继续可用
+  (`OCTORYN_SCOUT_EMBEDDING_PROVIDER=stub` 作为 `lexical` 的弃用别名仍被接受)。
+  **请对任何用旧桩索引过的语料重新入库** —— 其存储向量是哈希噪声,无法与新的词法
+  查询向量匹配;在同一存储中混用新旧嵌入会降低效果,直至重新索引。
+
 ## [0.2.0] - 2026-07-01
 
 ### Added
