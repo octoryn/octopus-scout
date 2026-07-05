@@ -8,7 +8,7 @@
 [![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)](.nvmrc)
 [![No Docker required](https://img.shields.io/badge/infra-no%20Docker%20required-success.svg)](#storage)
 
-> **[Octopus Core](https://github.com/octoryn) 的一部分 —— 受治理 AI 的开源基础设施栈。** 每个仓库只做一件事，沿 agent 生命周期组合：[Scout](https://github.com/octoryn/octopus-scout) · [Observe](https://github.com/octoryn/octopus-observe) · [Experience](https://github.com/octoryn/octopus-experience) · [Blackboard](https://github.com/octoryn/octopus-blackboard) · [Runtime](https://github.com/octoryn/octopus-runtime) · [Replay](https://github.com/octoryn/octopus-replay) —— [Inspect](https://github.com/octoryn/octopus-inspect) 横贯每一环做治理。整个技术栈都构建于同一个根原语 [Evidence](https://github.com/octoryn/octopus-evidence) 之上 —— 它是规范化、防篡改的原子单元，也是其余一切据以构建的根范畴。
+> **[Octopus Core](https://github.com/octoryn) 的一部分 —— 受治理 AI 的开源基础设施栈。** 每个仓库只做一件事，沿 agent 生命周期组合：[Scout](https://github.com/octoryn/octopus-scout) · [Observe](https://github.com/octoryn/octopus-observe) · [Experience](https://github.com/octoryn/octopus-experience) · [Blackboard](https://github.com/octoryn/octopus-blackboard) · [Workstate](https://github.com/octoryn/octopus-workstate) · [Runtime](https://github.com/octoryn/octopus-runtime) · [Replay](https://github.com/octoryn/octopus-replay) —— [Inspect](https://github.com/octoryn/octopus-inspect) 横贯每一环做治理。整个技术栈都构建于同一个根原语 [Evidence](https://github.com/octoryn/octopus-evidence) 之上 —— 它是规范化、防篡改的原子单元，也是其余一切据以构建的根范畴。
 >
 > **本仓库 —— Scout · 采集：** 采集证据，而非网页。
 
