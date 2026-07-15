@@ -304,6 +304,14 @@ interface SqliteRagChunkRow {
   embedding: Buffer;
 }
 
+interface SqliteVecBackfillRow {
+  chunk_id: string;
+  source_url: string;
+  governance_status: string;
+  trust_score: number;
+  embedding: Buffer;
+}
+
 /** Decode the stored Float32 embedding blob back into a plain number[]. */
 function decodeEmbedding(blob: Buffer): number[] {
   // Copy into a fresh, correctly-aligned ArrayBuffer slice before viewing as
@@ -360,9 +368,14 @@ function sqliteRowToChunk(row: SqliteRagChunkRow): StoredChunk {
  */
 class SqliteVectorStore implements VectorStore {
   private readonly db: Database.Database;
+  private readonly sqliteVecConfigured: boolean;
+  private sqliteVecState: "unknown" | "ready" | "disabled" = "unknown";
+  private sqliteVecDim: number | undefined;
+  private warnedSqliteVecDisabled = false;
 
   constructor(config: AppConfig) {
     this.db = getSqliteDb(config);
+    this.sqliteVecConfigured = Boolean(config.sqliteVecExtension);
     this.db.exec(
       `CREATE TABLE IF NOT EXISTS rag_chunks (
          chunk_id TEXT PRIMARY KEY,
@@ -385,6 +398,14 @@ class SqliteVectorStore implements VectorStore {
        CREATE VIRTUAL TABLE IF NOT EXISTS rag_chunks_fts USING fts5 (
          chunk_id UNINDEXED,
          content
+       );
+       CREATE TABLE IF NOT EXISTS rag_chunks_vec_meta (
+         key TEXT PRIMARY KEY,
+         value TEXT
+       );
+       CREATE TABLE IF NOT EXISTS rag_chunks_vec_ids (
+         chunk_id TEXT PRIMARY KEY,
+         vec_rowid INTEGER UNIQUE NOT NULL
        );`
     );
   }
@@ -416,15 +437,134 @@ class SqliteVectorStore implements VectorStore {
     if (filter?.includeBlocked) statuses.push("blocked");
     conditions.push(`${prefix}governance_status IN (${statuses.map(() => "?").join(", ")})`);
     params.push(...statuses);
-    return { sql: conditions.join(" AND "), params };
+    return { sql: conditions.join(" AND ") || "1 = 1", params };
   }
 
-  async upsertChunks(chunks: StoredChunk[]): Promise<void> {
-    if (chunks.length === 0) return;
-    // Replace ALL existing chunks belonging to any documentId in this batch,
-    // matching the File backend semantics (stale chunks must not linger).
-    const incomingDocIds = [...new Set(chunks.map((c) => c.documentId))];
+  /**
+   * sqlite-vec only supports simple metadata predicates in KNN queries. This
+   * mirrors buildFilterClause using = / != / >= so governance/url/trust filters
+   * are applied inside vec0 instead of leaking into a post-filtered result set.
+   */
+  private buildSqliteVecFilterClause(filter: VectorSearchFilter | undefined): { sql: string; params: unknown[] } {
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+    if (filter?.url !== undefined) {
+      conditions.push("v.source_url = ?");
+      params.push(filter.url);
+    }
+    if (filter?.minTrust !== undefined) {
+      conditions.push("v.trust_score >= ?");
+      params.push(filter.minTrust);
+    }
+    if (filter?.includeUnapproved && filter?.includeBlocked) {
+      // All current governance states are admitted.
+    } else if (filter?.includeUnapproved) {
+      conditions.push("v.governance_status != ?");
+      params.push("blocked");
+    } else if (filter?.includeBlocked) {
+      conditions.push("v.governance_status != ?");
+      params.push("requires_approval");
+    } else {
+      conditions.push("v.governance_status = ?");
+      params.push("allowed");
+    }
+    return { sql: conditions.join(" AND ") || "1 = 1", params };
+  }
 
+  private ensureSqliteVecIndex(dim: number | undefined): boolean {
+    if (!this.sqliteVecConfigured) return false;
+    if (this.sqliteVecState === "disabled") return false;
+    if (dim === undefined || !Number.isInteger(dim) || dim <= 0) return false;
+    if (this.sqliteVecState === "ready") return this.sqliteVecDim === dim;
+
+    const existing = this.db
+      .prepare<[], { value: string }>("SELECT value FROM rag_chunks_vec_meta WHERE key = 'dim'")
+      .get();
+    const existingDim = existing ? Number(existing.value) : undefined;
+    if (existingDim !== undefined && existingDim !== dim) {
+      this.disableSqliteVec(
+        new Error(`sqlite-vec index dimension is ${existingDim}, but the active embedding dimension is ${dim}`)
+      );
+      return false;
+    }
+
+    try {
+      this.db.exec(
+        `CREATE VIRTUAL TABLE IF NOT EXISTS rag_chunks_vec USING vec0(
+           embedding float[${dim}] distance_metric=cosine,
+           source_url TEXT,
+           governance_status TEXT,
+           trust_score FLOAT
+         );`
+      );
+      this.db
+        .prepare(
+          "INSERT INTO rag_chunks_vec_meta (key, value) VALUES ('dim', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+        )
+        .run(String(dim));
+      this.sqliteVecState = "ready";
+      this.sqliteVecDim = dim;
+      this.backfillSqliteVecIndex(dim);
+      return true;
+    } catch (error) {
+      this.disableSqliteVec(error);
+      return false;
+    }
+  }
+
+  private disableSqliteVec(error: unknown): void {
+    this.sqliteVecState = "disabled";
+    if (!this.warnedSqliteVecDisabled) {
+      this.warnedSqliteVecDisabled = true;
+      console.warn(
+        `[octopus-scout] sqlite-vec search is unavailable; falling back to SQLite brute-force cosine search. ` +
+          `${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  private backfillSqliteVecIndex(dim: number): void {
+    const rows = this.db
+      .prepare<[], SqliteVecBackfillRow>(
+        `SELECT chunk_id, source_url, governance_status, trust_score, embedding
+           FROM rag_chunks
+          WHERE chunk_id NOT IN (SELECT chunk_id FROM rag_chunks_vec_ids)`
+      )
+      .all();
+    if (rows.length === 0) return;
+
+    const insertVec = this.db.prepare<[Buffer, string, string, number]>(
+      "INSERT INTO rag_chunks_vec (embedding, source_url, governance_status, trust_score) VALUES (?, ?, ?, ?)"
+    );
+    const insertId = this.db.prepare<[string, number]>(
+      "INSERT OR REPLACE INTO rag_chunks_vec_ids (chunk_id, vec_rowid) VALUES (?, ?)"
+    );
+    const run = this.db.transaction((batch: SqliteVecBackfillRow[]) => {
+      for (const row of batch) {
+        if (decodeEmbedding(row.embedding).length !== dim) continue;
+        const result = insertVec.run(row.embedding, row.source_url, row.governance_status, row.trust_score);
+        insertId.run(row.chunk_id, Number(result.lastInsertRowid));
+      }
+    });
+    run(rows);
+  }
+
+  private deleteSqliteVecRows(chunkIds: string[]): void {
+    if (chunkIds.length === 0) return;
+    const selectVec = this.db.prepare<[string], { vec_rowid: number }>(
+      "SELECT vec_rowid FROM rag_chunks_vec_ids WHERE chunk_id = ?"
+    );
+    const deleteVec = this.db.prepare<[number]>("DELETE FROM rag_chunks_vec WHERE rowid = ?");
+    const deleteId = this.db.prepare<[string]>("DELETE FROM rag_chunks_vec_ids WHERE chunk_id = ?");
+    for (const chunkId of chunkIds) {
+      const row = selectVec.get(chunkId);
+      if (row) deleteVec.run(row.vec_rowid);
+      deleteId.run(chunkId);
+    }
+  }
+
+  private runUpsertChunks(chunks: StoredChunk[], indexSqliteVec: boolean): void {
+    const incomingDocIds = [...new Set(chunks.map((c) => c.documentId))];
     const selectByDoc = this.db.prepare<[string], { chunk_id: string }>(
       "SELECT chunk_id FROM rag_chunks WHERE document_id = ?"
     );
@@ -456,16 +596,30 @@ class SqliteVectorStore implements VectorStore {
          embedding = excluded.embedding`
     );
     const insertFts = this.db.prepare<[string, string]>("INSERT INTO rag_chunks_fts (chunk_id, content) VALUES (?, ?)");
+    const insertVec = indexSqliteVec
+      ? this.db.prepare<[Buffer, string, string, number]>(
+          "INSERT INTO rag_chunks_vec (embedding, source_url, governance_status, trust_score) VALUES (?, ?, ?, ?)"
+        )
+      : undefined;
+    const insertVecId = indexSqliteVec
+      ? this.db.prepare<[string, number]>(
+          "INSERT OR REPLACE INTO rag_chunks_vec_ids (chunk_id, vec_rowid) VALUES (?, ?)"
+        )
+      : undefined;
 
     const run = this.db.transaction((batch: StoredChunk[]) => {
       for (const docId of incomingDocIds) {
-        for (const row of selectByDoc.all(docId)) deleteFts.run(row.chunk_id);
+        const stale = selectByDoc.all(docId).map((row) => row.chunk_id);
+        if (indexSqliteVec) this.deleteSqliteVecRows(stale);
+        for (const chunkId of stale) deleteFts.run(chunkId);
         deleteByDoc.run(docId);
       }
       for (const c of batch) {
         // A chunk_id may also be replaced via ON CONFLICT without its document
-        // being in the delete set above; clear any stale FTS row for it first.
+        // being in the delete set above; clear any stale index row for it first.
+        if (indexSqliteVec) this.deleteSqliteVecRows([c.chunkId]);
         deleteFts.run(c.chunkId);
+        const embedding = encodeEmbedding(c.embedding ?? []);
         insertChunk.run({
           chunk_id: c.chunkId,
           document_id: c.documentId,
@@ -480,12 +634,32 @@ class SqliteVectorStore implements VectorStore {
           governance_status: c.governanceStatus,
           trust_score: c.trustScore,
           captured_at: c.capturedAt,
-          embedding: encodeEmbedding(c.embedding ?? [])
+          embedding
         });
         insertFts.run(c.chunkId, c.content);
+        if (insertVec && insertVecId) {
+          const result = insertVec.run(embedding, c.sourceUrl, c.governanceStatus, c.trustScore);
+          insertVecId.run(c.chunkId, Number(result.lastInsertRowid));
+        }
       }
     });
     run(chunks);
+  }
+
+  async upsertChunks(chunks: StoredChunk[]): Promise<void> {
+    if (chunks.length === 0) return;
+    // Replace ALL existing chunks belonging to any documentId in this batch,
+    // matching the File backend semantics (stale chunks must not linger).
+    const dim = chunks[0]?.embedding?.length;
+    const homogeneousDim = chunks.every((c) => (c.embedding ?? []).length === dim);
+    const indexSqliteVec = homogeneousDim && this.ensureSqliteVecIndex(dim);
+    try {
+      this.runUpsertChunks(chunks, indexSqliteVec);
+    } catch (error) {
+      if (!indexSqliteVec) throw error;
+      this.disableSqliteVec(error);
+      this.runUpsertChunks(chunks, false);
+    }
   }
 
   async deleteByUrl(sourceUrl: string): Promise<void> {
@@ -494,25 +668,67 @@ class SqliteVectorStore implements VectorStore {
     );
     const deleteFts = this.db.prepare<[string]>("DELETE FROM rag_chunks_fts WHERE chunk_id = ?");
     const deleteMain = this.db.prepare<[string]>("DELETE FROM rag_chunks WHERE source_url = ?");
+    const deleteSqliteVec = this.sqliteVecState === "ready";
     const run = this.db.transaction((url: string) => {
-      for (const row of selectByUrl.all(url)) deleteFts.run(row.chunk_id);
+      const stale = selectByUrl.all(url).map((row) => row.chunk_id);
+      if (deleteSqliteVec) this.deleteSqliteVecRows(stale);
+      for (const chunkId of stale) deleteFts.run(chunkId);
       deleteMain.run(url);
     });
-    run(sourceUrl);
+    try {
+      run(sourceUrl);
+    } catch (error) {
+      if (!deleteSqliteVec) throw error;
+      this.disableSqliteVec(error);
+      const fallback = this.db.transaction((url: string) => {
+        for (const row of selectByUrl.all(url)) deleteFts.run(row.chunk_id);
+        deleteMain.run(url);
+      });
+      fallback(sourceUrl);
+    }
   }
 
   async setGovernanceStatusByUrl(sourceUrl: string, status: GovernanceDecision["status"]): Promise<number> {
     const res = this.db
       .prepare<[string, string]>("UPDATE rag_chunks SET governance_status = ? WHERE source_url = ?")
       .run(status, sourceUrl);
+    if (this.sqliteVecState === "ready") {
+      try {
+        this.db
+          .prepare<[string, string]>("UPDATE rag_chunks_vec SET governance_status = ? WHERE source_url = ?")
+          .run(status, sourceUrl);
+      } catch (error) {
+        this.disableSqliteVec(error);
+      }
+    }
     return res.changes;
   }
 
   async search(embedding: number[], topK: number, filter?: VectorSearchFilter): Promise<VectorSearchHit[]> {
+    const limit = Number.isFinite(topK) && topK > 0 ? Math.floor(topK) : 0;
+    if (limit === 0) return [];
+    if (this.ensureSqliteVecIndex(embedding.length)) {
+      try {
+        const { sql, params } = this.buildSqliteVecFilterClause(filter);
+        const rows = this.db
+          .prepare<unknown[], SqliteRagChunkRow & { score: number }>(
+            `SELECT c.*, (1.0 - v.distance) AS score
+               FROM rag_chunks_vec v
+               JOIN rag_chunks_vec_ids i ON i.vec_rowid = v.rowid
+               JOIN rag_chunks c ON c.chunk_id = i.chunk_id
+              WHERE v.embedding MATCH ? AND k = ? AND ${sql}
+              ORDER BY v.distance ASC`
+          )
+          .all(encodeEmbedding(embedding), limit, ...params);
+        return rows.map((row) => toHit(sqliteRowToChunk(row), row.score));
+      } catch (error) {
+        this.disableSqliteVec(error);
+      }
+    }
     const { sql, params } = this.buildFilterClause(filter);
     const rows = this.db.prepare<unknown[], SqliteRagChunkRow>(`SELECT * FROM rag_chunks WHERE ${sql}`).all(...params);
     const candidates = rows.map(sqliteRowToChunk);
-    return rankTopK(candidates, embedding, topK);
+    return rankTopK(candidates, embedding, limit);
   }
 
   async lexicalSearch(query: string, topK: number, filter?: VectorSearchFilter): Promise<VectorSearchHit[]> {

@@ -35,6 +35,7 @@ describe("SqliteVectorStore via getVectorStore", () => {
   const previousDataDir = process.env.OCTORYN_SCOUT_DATA_DIR;
   const previousDatabaseUrl = process.env.DATABASE_URL;
   const previousBackend = process.env.OCTORYN_SCOUT_STORAGE_BACKEND;
+  const previousSqliteVecExtension = process.env.OCTORYN_SCOUT_SQLITE_VEC_EXTENSION;
 
   beforeEach(async () => {
     // Hermetic SQLite store under a unique OS temp dir.
@@ -43,6 +44,7 @@ describe("SqliteVectorStore via getVectorStore", () => {
     process.env.OCTORYN_SCOUT_STORAGE_BACKEND = "sqlite";
     // No DATABASE_URL -> the sqlite backend is selected over postgres.
     delete process.env.DATABASE_URL;
+    delete process.env.OCTORYN_SCOUT_SQLITE_VEC_EXTENSION;
 
     // Fresh shared DB connection for this test's temp dir.
     resetSqliteDbCache();
@@ -71,6 +73,11 @@ describe("SqliteVectorStore via getVectorStore", () => {
       delete process.env.OCTORYN_SCOUT_STORAGE_BACKEND;
     } else {
       process.env.OCTORYN_SCOUT_STORAGE_BACKEND = previousBackend;
+    }
+    if (previousSqliteVecExtension === undefined) {
+      delete process.env.OCTORYN_SCOUT_SQLITE_VEC_EXTENSION;
+    } else {
+      process.env.OCTORYN_SCOUT_SQLITE_VEC_EXTENSION = previousSqliteVecExtension;
     }
     await rm(dataDir, { recursive: true, force: true });
   });
@@ -104,6 +111,32 @@ describe("SqliteVectorStore via getVectorStore", () => {
     expect(hit.governanceStatus).toBe("allowed");
     expect(hit.trustScore).toBeCloseTo(0.8, 5);
     expect(Number.isFinite(hit.score)).toBe(true);
+  });
+
+  it("falls back to brute-force search when the sqlite-vec extension cannot be loaded", async () => {
+    await rm(dataDir, { recursive: true, force: true });
+    dataDir = await mkdtemp(join(tmpdir(), `octopus-scout-sqlite-vec-missing-${randomUUID()}-`));
+    process.env.OCTORYN_SCOUT_DATA_DIR = dataDir;
+    process.env.OCTORYN_SCOUT_SQLITE_VEC_EXTENSION = join(dataDir, "missing-vec0");
+
+    resetSqliteDbCache();
+    vi.resetModules();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const mod = await import("../src/knowledge/vectorStore.js");
+      const fallbackStore = mod.getVectorStore();
+      await fallbackStore.init();
+      await fallbackStore.upsertChunks([
+        makeChunk({ chunkId: "x", embedding: [1, 0, 0] }),
+        makeChunk({ chunkId: "y", embedding: [0, 1, 0], documentId: "y" })
+      ]);
+
+      const hits = await fallbackStore.search([1, 0, 0], 2);
+      expect(hits.map((h) => h.chunkId)).toEqual(["x", "y"]);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("Failed to load sqlite-vec extension"));
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("respects topK", async () => {
