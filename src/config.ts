@@ -1,3 +1,4 @@
+import "./env.js";
 import { z } from "zod";
 
 /**
@@ -41,12 +42,13 @@ const configSchema = z.object({
   approvalMode: z.enum(["off", "flag", "enforce"]).default("flag"),
   // "lexical" (default) = built-in offline, deterministic keyword-overlap
   // embedder. "stub" is a deprecated alias kept for backward compatibility and
-  // normalized to "lexical". "voyage"/"openai" are real semantic providers.
+  // normalized to "lexical". "voyage"/"openai"/"ollama" are real semantic providers.
   embeddingProvider: z
-    .enum(["lexical", "stub", "voyage", "openai"])
+    .enum(["lexical", "stub", "voyage", "openai", "ollama"])
     .default("lexical")
     .transform((v) => (v === "stub" ? "lexical" : v)),
   embeddingModel: z.string().optional(),
+  ollamaUrl: z.string().default("http://127.0.0.1:11434"),
   voyageApiKey: z.string().optional(),
   openaiApiKey: z.string().optional(),
   policyFile: z.string().optional(),
@@ -71,6 +73,7 @@ const configSchema = z.object({
   stalenessMaxAgeDays: z.coerce.number().int().positive().default(7),
   refreshLimit: z.coerce.number().int().positive().default(50),
   vectorDim: z.coerce.number().int().positive().optional(),
+  sqliteVecExtension: z.string().optional(),
   schedulerLockTtlMs: z.coerce.number().int().positive().default(300_000),
   retrievalMode: z.enum(["vector", "lexical", "hybrid"]).default("hybrid"),
   rerankProvider: z.enum(["none", "heuristic", "cohere", "voyage"]).default("heuristic"),
@@ -115,6 +118,7 @@ export function loadConfig(env = process.env): AppConfig {
     approvalMode: env.OCTORYN_SCOUT_APPROVAL_MODE,
     embeddingProvider: env.OCTORYN_SCOUT_EMBEDDING_PROVIDER,
     embeddingModel: env.OCTORYN_SCOUT_EMBEDDING_MODEL,
+    ollamaUrl: env.OCTORYN_SCOUT_OLLAMA_URL ?? env.OLLAMA_HOST,
     voyageApiKey: env.VOYAGE_API_KEY,
     openaiApiKey: env.OPENAI_API_KEY,
     policyFile: env.OCTORYN_SCOUT_POLICY_FILE,
@@ -139,6 +143,7 @@ export function loadConfig(env = process.env): AppConfig {
     stalenessMaxAgeDays: env.OCTORYN_SCOUT_STALENESS_MAX_AGE_DAYS,
     refreshLimit: env.OCTORYN_SCOUT_REFRESH_LIMIT,
     vectorDim: env.OCTORYN_SCOUT_VECTOR_DIM,
+    sqliteVecExtension: env.OCTORYN_SCOUT_SQLITE_VEC_EXTENSION,
     schedulerLockTtlMs: env.OCTORYN_SCOUT_SCHEDULER_LOCK_TTL_MS,
     retrievalMode: env.OCTORYN_SCOUT_RETRIEVAL_MODE,
     rerankProvider: env.OCTORYN_SCOUT_RERANK_PROVIDER,

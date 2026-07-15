@@ -18,6 +18,7 @@ import type { AppConfig } from "../config.js";
 const nativeRequire = createRequire(import.meta.url);
 let driver: typeof Database | null | undefined;
 let warnedUnavailable = false;
+let warnedSqliteVecUnavailable = false;
 
 function loadDriver(): typeof Database | null {
   if (driver !== undefined) return driver;
@@ -88,6 +89,19 @@ export function getSqliteDb(config: AppConfig): Database.Database {
   db.pragma("journal_mode = WAL");
   db.pragma("busy_timeout = 5000");
   db.pragma("foreign_keys = ON");
+  if (config.sqliteVecExtension) {
+    try {
+      db.loadExtension(resolve(config.sqliteVecExtension));
+    } catch (error) {
+      if (!warnedSqliteVecUnavailable) {
+        warnedSqliteVecUnavailable = true;
+        console.warn(
+          `[octopus-scout] Failed to load sqlite-vec extension at ${config.sqliteVecExtension}; ` +
+            `falling back to SQLite brute-force cosine search. ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+    }
+  }
 
   connectionCache.set(path, db);
   return db;

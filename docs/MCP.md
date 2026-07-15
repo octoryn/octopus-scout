@@ -48,12 +48,18 @@ client at it instead of running it interactively.
 
 ## Environment variables
 
-The server degrades gracefully without any configuration (falling back to a local
-data directory and a stub embedding provider). Useful variables:
+The server auto-loads `./.env` by default and degrades gracefully without any
+configuration (falling back to a local data directory and the offline lexical
+embedder). Useful variables:
 
 - `OCTORYN_SCOUT_DATA_DIR` — where snapshots, audit logs, and the local vector
   store live (default `.octoryn-scout`).
-- `OCTORYN_SCOUT_EMBEDDING_PROVIDER` — `stub` (default), `voyage`, or `openai`.
+- `OCTORYN_SCOUT_ENV_FILE` / `OCTORYN_SCOUT_DISABLE_DOTENV` — choose or disable
+  dotenv auto-loading.
+- `OCTORYN_SCOUT_EMBEDDING_PROVIDER` — `lexical` (default), `ollama`, `voyage`,
+  or `openai`; `stub` is accepted as a deprecated alias for `lexical`.
+- `OCTORYN_SCOUT_OLLAMA_URL` — Ollama base URL when `ollama` is selected
+  (default `http://127.0.0.1:11434`).
 - `OPENAI_API_KEY` — required when the embedding provider is `openai`.
 - `VOYAGE_API_KEY` — required when the embedding provider is `voyage`.
 - `DATABASE_URL` — Postgres (pgvector) connection string for the shared vector store.

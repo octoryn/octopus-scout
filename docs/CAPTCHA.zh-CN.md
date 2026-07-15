@@ -95,6 +95,28 @@ OCTORYN_SCOUT_CAPTCHA_PROVIDER=2captcha OCTORYN_SCOUT_CAPTCHA_API_KEY=... npm st
 
 ---
 
+## 仅用于测试的 mock solver
+
+集成测试中可注册一个确定性的 mock，而不是调用外部服务：
+
+```ts
+import { registerCaptchaSolver } from "octopus-scout/dist/fetcher/captcha.js";
+import type { CaptchaChallenge, CaptchaSolution } from "octopus-scout/dist/types.js";
+
+registerCaptchaSolver("mock", () => ({
+  name: "mock",
+  solve: async (challenge: CaptchaChallenge): Promise<CaptchaSolution | null> =>
+    challenge.siteKey
+      ? { token: `mock-token:${challenge.siteKey}`, provider: "mock", solvedAt: new Date(0).toISOString() }
+      : null
+}));
+```
+
+然后以 `OCTORYN_SCOUT_CAPTCHA_PROVIDER=mock` 运行测试进程。引擎也导出了
+`clearCaptchaSolvers()` 作为测试清理接缝，避免一个测试套件里的 mock 泄漏到另一个套件。
+
+---
+
 ## 它在流水线中的接入位置
 
 ```

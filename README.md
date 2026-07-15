@@ -55,6 +55,14 @@ curl -s http://localhost:8787/scrape \
 > `OCTORYN_SCOUT_ALLOW_PRIVATE_HOSTS=true` to scrape `localhost` or other private
 > addresses during local dev and tests.
 
+### Configuration
+
+`octopus-scout` auto-loads `./.env` before reading configuration, without
+overriding variables that are already exported by your shell/process manager.
+Set `OCTORYN_SCOUT_ENV_FILE=/absolute/path/to/scout.env` to point at a different
+dotenv file, or `OCTORYN_SCOUT_DISABLE_DOTENV=1` for environments that inject
+configuration themselves. Start from [`.env.example`](.env.example).
+
 CLI:
 
 ```bash
@@ -108,6 +116,9 @@ dir) for snapshots, vectors, audit, approvals, and crawl jobs — clone and run.
 - Set `DATABASE_URL=postgres://...` to use **Postgres + pgvector** instead,
   for large corpora or multi-instance deployments. When `REDIS_URL` is set,
   `/jobs/scrape` and `npm run worker` use BullMQ for durable queues.
+- Set `OCTORYN_SCOUT_SQLITE_VEC_EXTENSION=/path/to/vec0` to load a trusted
+  sqlite-vec-compatible extension into the embedded SQLite connection. When
+  unset, Scout keeps using its built-in FTS5 + in-process cosine path.
 
 Postgres and Redis are entirely optional; bring them in only when you outgrow
 the embedded defaults:
@@ -219,9 +230,12 @@ the same secure-by-default contract as search.
 > snippets (octopus-scout adds no framework runtime dependency).
 
 Embeddings are produced through a pluggable `EmbeddingProvider`
-(`OCTORYN_SCOUT_EMBEDDING_PROVIDER` = `lexical` | `voyage` | `openai`): the default is a
-built-in **offline lexical embedder**, and Voyage/OpenAI activate when their API key is set
-(`VOYAGE_API_KEY` / `OPENAI_API_KEY`), falling back to the lexical embedder otherwise.
+(`OCTORYN_SCOUT_EMBEDDING_PROVIDER` = `lexical` | `ollama` | `voyage` | `openai`):
+the default is a built-in **offline lexical embedder**. `ollama` uses a local
+Ollama server (`OCTORYN_SCOUT_OLLAMA_URL`, default `http://127.0.0.1:11434`) and
+the `nomic-embed-text` model by default. Voyage/OpenAI activate when their API
+key is set (`VOYAGE_API_KEY` / `OPENAI_API_KEY`), falling back to the lexical
+embedder otherwise.
 
 > ✅ **Works out of the box, offline, with no API key.** The default `lexical` embedder is a
 > zero-config, deterministic, dependency-free **keyword-overlap retriever** (a BM25-lite
@@ -232,8 +246,8 @@ built-in **offline lexical embedder**, and Voyage/OpenAI activate when their API
 >
 > ⚠️ **It is NOT semantic.** The lexical embedder does not understand synonyms, paraphrase, or
 > cross-lingual meaning. For **true semantic search**, set `OCTORYN_SCOUT_EMBEDDING_PROVIDER`
-> to `voyage` or `openai` (with the matching API key). (`stub` is still accepted as a
-> deprecated alias for `lexical`.) The vector store is the embedded **SQLite** backend
+> to `ollama`, `voyage`, or `openai` (with the matching local server or API key).
+> (`stub` is still accepted as a deprecated alias for `lexical`.) The vector store is the embedded **SQLite** backend
 > (in-process cosine) by default; when `DATABASE_URL` is set it uses **pgvector** (a
 > `vector(dim)` column + HNSW cosine index, `<=>` distance) and transparently falls back to
 > jsonb + in-process cosine if the `vector` extension is unavailable.
@@ -328,9 +342,10 @@ The engine emits internal events (`scrape.completed`, `approval.requested`,
 - **JS-challenge handling** — Cloudflare-style "Just a moment" interstitials are detected
   and waited out by the real browser executing the challenge (no solving). `FetchProvider`
   is a pluggable seam (`LocalFetchProvider` today) for future backends.
-- **CAPTCHA** — a `CaptchaSolver` seam exists but ships only a `NoopCaptchaSolver`
-  placeholder (TODO). Solving modern CAPTCHAs requires an external service/model and is
-  intentionally not built in.
+- **CAPTCHA** — a `CaptchaSolver` registry exists but ships only the safe
+  `NoopCaptchaSolver` plus an inert external-solver template. Operators can
+  register a mock solver for tests or a BYO solver for authorized sites; no
+  solving service is built in. See [docs/CAPTCHA.md](docs/CAPTCHA.md).
 - **Out of scope (by design):** a hosted proxy pool and adversarial-grade anti-bot
   evasion. The stealth + BYO-proxy + challenge-waiting above handle most of the everyday
   web; hard targets behind aggressive bot defenses or CAPTCHAs are not guaranteed.

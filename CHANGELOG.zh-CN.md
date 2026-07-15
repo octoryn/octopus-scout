@@ -5,6 +5,25 @@
 本项目所有重要变更都记录于此。格式基于
 [Keep a Changelog](https://keepachangelog.com/)，并且本项目在到达 1.0 之后将遵循语义化版本 (semantic versioning)。
 
+## [Unreleased]
+
+### 新增
+
+- Dotenv 自动加载：默认读取 `./.env`，且不会覆盖显式设置的环境变量；
+  `OCTORYN_SCOUT_ENV_FILE` 可指定其他文件，`OCTORYN_SCOUT_DISABLE_DOTENV=1`
+  可关闭自动加载。
+- 通过 Ollama 提供本地语义嵌入（`OCTORYN_SCOUT_EMBEDDING_PROVIDER=ollama`、
+  `OCTORYN_SCOUT_OLLAMA_URL`，默认模型 `nomic-embed-text`）。
+- 通过 `OCTORYN_SCOUT_SQLITE_VEC_EXTENSION` 可选加载可信的 sqlite-vec 兼容扩展。
+- pgvector live CI：使用真实 Postgres 容器覆盖 search-only reader、治理过滤、
+  词法检索、状态更新与删除行为。
+- CAPTCHA 测试 mock 文档与注册表清理覆盖。
+
+### 变更
+
+- `prepublishOnly` 现在会运行 typecheck、format check、lint、build、测试以及
+  `npm pack --dry-run` 包内容冒烟检查。
+
 ## [0.3.0] - 2026-07-03
 
 ### 变更

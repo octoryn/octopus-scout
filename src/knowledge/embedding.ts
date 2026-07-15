@@ -60,8 +60,8 @@ function hashToken(token: string, dimensions: number): { bucket: number; sign: n
  * cosine similarity ranks documents by weighted shared-keyword overlap.
  *
  * For TRUE semantic search (synonyms, paraphrase, cross-lingual), configure a
- * real provider: Voyage/OpenAI implement {@link EmbeddingProvider} and are
- * swapped in via {@link getEmbeddingProvider} by setting
+ * real provider: Ollama/Voyage/OpenAI implement {@link EmbeddingProvider} and
+ * are swapped in via {@link getEmbeddingProvider} by setting
  * `OCTORYN_SCOUT_EMBEDDING_PROVIDER` + the matching API key.
  */
 export class LexicalEmbeddingProvider implements EmbeddingProvider {
@@ -199,6 +199,59 @@ export class OpenAIEmbeddingProvider implements EmbeddingProvider {
   }
 }
 
+interface OllamaEmbeddingResponse {
+  embedding?: number[];
+}
+
+/**
+ * Local semantic embedding provider backed by Ollama. It uses Ollama's
+ * single-prompt `/api/embeddings` endpoint sequentially, avoiding any SDK or
+ * native dependency while still providing a real offline semantic option.
+ */
+export class OllamaEmbeddingProvider implements EmbeddingProvider {
+  readonly name = "ollama";
+  readonly model: string;
+  dimensions = 768;
+
+  private readonly baseUrl: string;
+
+  constructor(baseUrl: string, model?: string) {
+    this.baseUrl = baseUrl.replace(/\/+$/, "");
+    this.model = model ?? "nomic-embed-text";
+  }
+
+  async embed(texts: string[]): Promise<number[][]> {
+    const vectors: number[][] = [];
+    for (const text of texts) {
+      const response = await fetch(`${this.baseUrl}/api/embeddings`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ model: this.model, prompt: text })
+      });
+      if (!response.ok) {
+        let body = "";
+        try {
+          body = await response.text();
+        } catch {
+          body = "<unreadable response body>";
+        }
+        throw new Error(
+          `Ollama embedding request failed: HTTP ${response.status} ${response.statusText} - ${body}. ` +
+            `Is Ollama running at ${this.baseUrl} and is model ${this.model} pulled?`
+        );
+      }
+      const json = (await response.json()) as OllamaEmbeddingResponse;
+      const vector = json.embedding ?? [];
+      if (vector.length === 0) {
+        throw new Error(`Ollama embedding response for model ${this.model} had no embedding vector`);
+      }
+      this.dimensions = vector.length;
+      vectors.push(vector);
+    }
+    return vectors;
+  }
+}
+
 let provider: EmbeddingProvider | undefined;
 
 // Module-level guard so the missing-key warning is logged at most once per
@@ -212,6 +265,7 @@ export const LEXICAL_PROVIDER_NAME = "lexical-hash-256";
  * Returns the active embedding provider, selected from config:
  *  - "voyage" + a Voyage API key   -> {@link VoyageEmbeddingProvider}
  *  - "openai" + an OpenAI API key   -> {@link OpenAIEmbeddingProvider}
+ *  - "ollama"                      -> {@link OllamaEmbeddingProvider}
  *  - "lexical"/"stub" or missing key -> {@link LexicalEmbeddingProvider}
  *
  * Never throws on a missing key: a misconfigured real provider degrades
@@ -227,6 +281,8 @@ export function getEmbeddingProvider(): EmbeddingProvider {
       provider = new VoyageEmbeddingProvider(config.voyageApiKey, config.embeddingModel);
     } else if (config.embeddingProvider === "openai" && config.openaiApiKey) {
       provider = new OpenAIEmbeddingProvider(config.openaiApiKey, config.embeddingModel);
+    } else if (config.embeddingProvider === "ollama") {
+      provider = new OllamaEmbeddingProvider(config.ollamaUrl, config.embeddingModel);
     } else {
       if ((config.embeddingProvider === "openai" || config.embeddingProvider === "voyage") && !warnedMissingKey) {
         warnedMissingKey = true;
@@ -242,8 +298,8 @@ export function getEmbeddingProvider(): EmbeddingProvider {
 
 /**
  * Describes the currently active embedding provider for readiness reporting.
- * `semantic` is true only for a real provider (Voyage/OpenAI); the built-in
- * lexical embedder is honest keyword-overlap retrieval, not semantic search.
+ * `semantic` is true only for a real provider (Ollama/Voyage/OpenAI); the
+ * built-in lexical embedder is honest keyword-overlap retrieval, not semantic search.
  */
 export function activeEmbeddingInfo(): { provider: string; semantic: boolean } {
   const active = getEmbeddingProvider();

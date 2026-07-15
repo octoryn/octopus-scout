@@ -18,10 +18,10 @@ The difference isn't "how aggressively you crawl," but **what happens after cont
 
 ### Design Principles
 
-1. **Degrade gracefully** — when Redis/Postgres/API keys are absent, it automatically falls back to embedded SQLite / in-memory / deterministic stubs, and never throws during import. A single machine with zero dependencies (clone-and-run) can run the full pipeline.
+1. **Degrade gracefully** — when Redis/Postgres/API keys are absent, it automatically falls back to embedded SQLite / in-memory / deterministic offline providers, and never throws during import. A single machine with zero dependencies (clone-and-run) can run the full pipeline.
 2. **Secure by default** — SSRF protection, content size/type limits, robots compliance, and sensitive-domain gating are on by default.
 3. **Governance-first** — trust scoring, audit trails, human approval, and per-domain policies are first-class citizens, not afterthoughts.
-4. **Pluggable backends** — storage / vector store / embedding / rate limiting are all interfaces + multiple implementations (SQLite ↔ File ↔ Postgres, stub ↔ Voyage/OpenAI, in-memory ↔ Redis).
+4. **Pluggable backends** — storage / vector store / embedding / rate limiting are all interfaces + multiple implementations (SQLite ↔ File ↔ Postgres, lexical ↔ Ollama/Voyage/OpenAI, in-memory ↔ Redis).
 5. **Shared core across entry points** — the HTTP API, CLI, and MCP server share the same pipeline and behave consistently.
 
 ---
@@ -89,7 +89,7 @@ flowchart TD
 - **Queue**: BullMQ + Redis (optional)
 - **Storage**: embedded SQLite (`better-sqlite3`, default, single-file zero-dependency) / local JSON files (`file` fallback) / PostgreSQL + pgvector (optional, set `DATABASE_URL`)
 - **Rate limiting/event locks**: `ioredis` (optional) / in-process (default)
-- **embedding**: Voyage / OpenAI (with key) / deterministic stub (default, offline)
+- **embedding**: deterministic lexical (default, offline) / local Ollama / hosted Voyage or OpenAI
 - **Validation**: `zod` (all external input is parsed at the boundary)
 - **MCP**: `@modelcontextprotocol/sdk`
 - **Testing**: Vitest (hermetic, local http fixtures, temp directories)
@@ -161,7 +161,7 @@ Organized by five iterations (each independently re-run + tested end-to-end agai
 
 ### R2 — Closing the RAG Retrieval Loop
 
-**Built**: real embeddings (Voyage/OpenAI + stub fallback), vector store (File cosine / PG jsonb), `/ingest`+`/search`, per-domain governance policies, API-key authentication.
+**Built**: real embeddings (Ollama/Voyage/OpenAI + lexical fallback), vector store (SQLite/File cosine / PG jsonb/pgvector), `/ingest`+`/search`, per-domain governance policies, API-key authentication.
 **Achieved**: the complete RAG read/write loop of `scrape → governance → chunk → embedding → vector store → retrieval with citations`.
 **Solved**: Firecrawl only gives you Markdown, and you have to build the vector store yourself; here retrieval is **built in**, working out of the box.
 
@@ -250,7 +250,7 @@ Honest positioning: **completeness has been substantially filled in (no longer "
 | **Persistent queue (real Redis)**                     | ✅ `/jobs/ingest-site` enqueued → worker processed → `/jobs/:id` returns `completed`.                                                                                                               |
 | **Distributed lock (real Redis)**                     | ✅ Concurrent on the same key: only one acquires, the other gets `acquired:false`; reacquirable after release; degrades when no Redis.                                                              |
 | **MCP (built bin)**                                   | ✅ `tools/list` from `node dist/mcp.js` returns all tools.                                                                                                                                          |
-| **Hybrid retrieval (offline)**                        | ✅ Compared vector/lexical/hybrid under stub vectors: BM25 hits chunks containing the keyword, RRF fusion scores match expectations, heuristic rerank deterministic.                                |
+| **Hybrid retrieval (offline)**                        | ✅ Compared vector/lexical/hybrid under lexical vectors: BM25 hits chunks containing the keyword, RRF fusion scores match expectations, heuristic rerank deterministic.                             |
 | **LLM structured extraction (OpenAI live)**           | ✅ `gpt-4o-mini` extracts the Espresso page per JSON Schema → compliant JSON. **The Anthropic path is implemented with the official SDK, but not live-verified without an Anthropic key.**          |
 | **/map (real site)**                                  | ✅ quotes.toscrape.com discovered 48 URLs, search filtering effective.                                                                                                                              |
 | **Pre-scrape actions (real chromium)**                | ✅ click runs runtime JS → a runtime-only marker appears in the DOM; the screenshot action produces a screenshot.                                                                                   |
@@ -290,7 +290,7 @@ Honest positioning: **completeness has been substantially filled in (no longer "
 **Current limitations (as of latest)**
 
 - The pgvector column dimension is locked to the vector length on the first upsert (switching embedding providers requires rebuilding the table).
-- Not live-verified (requires external keys/resources): Voyage embedding, Anthropic extraction, Cohere/Voyage rerank, large-scale load testing.
+- Not live-verified (requires external keys/resources): Voyage embedding, Anthropic extraction, Cohere/Voyage rerank, large-scale load testing. Ollama is covered with a mocked local endpoint.
 - Anti-bot: only stealth-plus + BYO proxy + JS challenge waiting; **top-tier bot protection / CAPTCHA solving not guaranteed** (deliberate, see §8 and docs/CAPTCHA.md).
 
 **Suggested Roadmap** (remaining)
