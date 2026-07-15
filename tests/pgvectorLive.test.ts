@@ -45,9 +45,9 @@ describe.skipIf(!PG)("pgvector (live DB)", () => {
     process.env.OCTORYN_SCOUT_EMBEDDING_PROVIDER = "stub";
     vi.resetModules();
     const { getVectorStore } = await import("../src/knowledge/vectorStore.js");
-    await getVectorStore()
-      .deleteByUrl(url)
-      .catch(() => undefined);
+    const store = getVectorStore();
+    await store.deleteByUrl(url).catch(() => undefined);
+    await store.deleteByUrl(`${url}/filters`).catch(() => undefined);
   });
 
   it("a fresh search-only store sees rows written by another store instance", { timeout: 30_000 }, async () => {
@@ -88,7 +88,7 @@ describe.skipIf(!PG)("pgvector (live DB)", () => {
     ]);
 
     expect((await store.lexicalSearch("alpha governance", 5, { url: `${url}/filters` })).length).toBeGreaterThan(0);
-    expect(await store.setGovernanceStatusByUrl(`${url}/filters`, "denied")).toBeGreaterThan(0);
+    expect(await store.setGovernanceStatusByUrl(`${url}/filters`, "requires_approval")).toBeGreaterThan(0);
     expect(
       await store.search(
         Array.from({ length: dim }, (_, i) => Math.sin(i + 1) * 0.1),
