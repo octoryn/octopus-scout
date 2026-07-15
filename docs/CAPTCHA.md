@@ -98,6 +98,30 @@ OCTORYN_SCOUT_CAPTCHA_PROVIDER=2captcha OCTORYN_SCOUT_CAPTCHA_API_KEY=... npm st
 
 ---
 
+## Test-only mock solver
+
+For integration tests, register a deterministic mock instead of calling an
+external service:
+
+```ts
+import { registerCaptchaSolver } from "octopus-scout/dist/fetcher/captcha.js";
+import type { CaptchaChallenge, CaptchaSolution } from "octopus-scout/dist/types.js";
+
+registerCaptchaSolver("mock", () => ({
+  name: "mock",
+  solve: async (challenge: CaptchaChallenge): Promise<CaptchaSolution | null> =>
+    challenge.siteKey
+      ? { token: `mock-token:${challenge.siteKey}`, provider: "mock", solvedAt: new Date(0).toISOString() }
+      : null
+}));
+```
+
+Then run the test process with `OCTORYN_SCOUT_CAPTCHA_PROVIDER=mock`. The engine
+also exports `clearCaptchaSolvers()` for test teardown, so one suite's mock does
+not leak into another.
+
+---
+
 ## Where it plugs into the pipeline
 
 ```

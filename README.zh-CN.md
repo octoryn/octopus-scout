@@ -54,6 +54,14 @@ curl -s http://localhost:8787/scrape \
 > 🔒 SSRF 防护默认会拦截私有/回环 (loopback) 主机——在本地开发和测试中若要抓取 `localhost`
 > 或其他私有地址，请设置 `OCTORYN_SCOUT_ALLOW_PRIVATE_HOSTS=true`。
 
+### Configuration
+
+`octopus-scout` 会在读取配置前自动加载 `./.env`，且不会覆盖已经由
+shell 或进程管理器显式设置的变量。用
+`OCTORYN_SCOUT_ENV_FILE=/absolute/path/to/scout.env` 指定另一个 dotenv 文件；
+在由平台注入环境变量的部署中，可设置 `OCTORYN_SCOUT_DISABLE_DOTENV=1`
+关闭自动加载。可从 [`.env.example`](.env.example) 开始。
+
 CLI：
 
 ```bash
@@ -105,6 +113,9 @@ console.log(hits);
 - 设置 `DATABASE_URL=postgres://...` 改用 **Postgres + pgvector**，
   以应对大规模语料或多实例部署。当设置了 `REDIS_URL` 时，
   `/jobs/scrape` 与 `npm run worker` 会使用 BullMQ 提供持久化队列。
+- 设置 `OCTORYN_SCOUT_SQLITE_VEC_EXTENSION=/path/to/vec0` 可将一个可信的
+  sqlite-vec 兼容扩展加载到内嵌 SQLite 连接中。未设置时，Scout 继续使用
+  内置的 FTS5 + 进程内余弦相似度路径。
 
 Postgres 和 Redis 完全是可选项；只有当你的规模超出内嵌默认方案时才需要引入它们：
 
@@ -211,17 +222,25 @@ schema——每个 URL 一个结果，单个失败会被记为一个 skipped 结
 > 不引入任何框架运行时依赖）。
 
 嵌入向量通过一个可插拔的 `EmbeddingProvider` 产生
-（`OCTORYN_SCOUT_EMBEDDING_PROVIDER` = `stub` | `voyage` | `openai`）：默认是一个
-确定性、无需网络的桩 (stub)，而 Voyage/OpenAI 在设置了对应 API key 时启用
-（`VOYAGE_API_KEY` / `OPENAI_API_KEY`），否则回退到桩。
+（`OCTORYN_SCOUT_EMBEDDING_PROVIDER` = `lexical` | `ollama` | `voyage` | `openai`）：
+默认是内置的**离线 lexical embedder**。`ollama` 使用本地 Ollama 服务
+（`OCTORYN_SCOUT_OLLAMA_URL`，默认 `http://127.0.0.1:11434`）以及默认的
+`nomic-embed-text` 模型；Voyage/OpenAI 在设置了对应 API key 时启用
+（`VOYAGE_API_KEY` / `OPENAI_API_KEY`），否则回退到 lexical。
 
-> ⚠️ **默认的嵌入提供方是一个确定性的、非语义 (NON-SEMANTIC) 的桩**——它
-> 产生稳定的离线向量用于测试，但不捕捉语义，因此只有当你将
-> `OCTORYN_SCOUT_EMBEDDING_PROVIDER` 设为 `voyage` 或 `openai`（并配上匹配的 API key）后，`vector`
-> 与 `hybrid` 检索才具备语义意义。向量
-> 库默认是内嵌的 **SQLite** 后端（进程内余弦相似度）；当设置了 `DATABASE_URL`
-> 时则使用 **pgvector**（一个 `vector(dim)` 列 + HNSW 余弦索引、`<=>` 距离），
-> 并在 `vector` 扩展不可用时透明回退到 jsonb + 进程内余弦相似度。
+> ✅ **开箱即用、离线、无需 API key。** 默认的 `lexical` embedder 是一个
+> 零配置、确定性、零依赖的**关键词重叠检索器**（BM25-lite 特征哈希向量器）：
+> 它会分词、把 token 哈希进固定的 256 维向量、使用次线性词频权重并做 L2
+> 归一化，因此余弦相似度会按加权关键词重叠排序。`vector` 与 `hybrid`
+> 检索在新克隆的仓库里也能给出有用结果。
+>
+> ⚠️ **它不是语义模型。** lexical embedder 不理解同义词、改写或跨语言含义。
+> 若需要**真正语义检索**，请将 `OCTORYN_SCOUT_EMBEDDING_PROVIDER` 设为
+> `ollama`、`voyage` 或 `openai`（并配置匹配的本地服务或 API key）。
+> （`stub` 仍作为 `lexical` 的废弃别名被接受。）向量库默认是内嵌的
+> **SQLite** 后端（进程内余弦相似度）；当设置了 `DATABASE_URL` 时则使用
+> **pgvector**（一个 `vector(dim)` 列 + HNSW 余弦索引、`<=>` 距离），并在
+> `vector` 扩展不可用时透明回退到 jsonb + 进程内余弦相似度。
 
 ## Access control
 
@@ -313,9 +332,10 @@ schema——每个 URL 一个结果，单个失败会被记为一个 skipped 结
 - **JS 挑战处理** ——Cloudflare 风格的"Just a moment"过渡页会被检测到，
   并由真实浏览器执行该挑战来等待通过（不做破解）。`FetchProvider`
   是一个可插拔的接缝 (seam)（目前是 `LocalFetchProvider`），为未来的后端预留。
-- **CAPTCHA** ——存在一个 `CaptchaSolver` 接缝，但只附带一个 `NoopCaptchaSolver`
-  占位实现（TODO）。破解现代 CAPTCHA 需要外部服务/模型，因此
-  有意未内置。
+- **CAPTCHA** ——存在一个 `CaptchaSolver` 注册表，但只随包提供安全的
+  `NoopCaptchaSolver` 和一个惰性的外部 solver 模板。运营方可为测试注册
+  mock solver，也可在有授权的站点上接入自带 solver；项目本身不内置任何破解服务。
+  见 [docs/CAPTCHA.zh-CN.md](docs/CAPTCHA.zh-CN.md)。
 - **超出范围（有意为之）：** 托管代理池以及对抗级 (adversarial-grade) 的反爬虫
   规避。上述的隐身 + 自带代理 + 等待挑战已能应对日常网络的大部分场景；
   对于躲在激进反机器人防御或 CAPTCHA 之后的硬目标，则不作保证。

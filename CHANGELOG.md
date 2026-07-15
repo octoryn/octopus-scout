@@ -6,6 +6,26 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 semantic versioning once it reaches 1.0.
 
+## [Unreleased]
+
+### Added
+
+- Dotenv auto-loading: `./.env` is loaded by default without overriding explicit
+  environment variables; `OCTORYN_SCOUT_ENV_FILE` selects another file and
+  `OCTORYN_SCOUT_DISABLE_DOTENV=1` disables loading.
+- Local semantic embeddings via Ollama (`OCTORYN_SCOUT_EMBEDDING_PROVIDER=ollama`,
+  `OCTORYN_SCOUT_OLLAMA_URL`, default model `nomic-embed-text`).
+- Optional SQLite extension loading via `OCTORYN_SCOUT_SQLITE_VEC_EXTENSION` for
+  operators who want to load a trusted sqlite-vec-compatible extension.
+- Live pgvector CI coverage for a real Postgres container, including search-only
+  readers, governance filtering, lexical search, updates, and delete behavior.
+- CAPTCHA test mock documentation and registry cleanup coverage.
+
+### Changed
+
+- `prepublishOnly` now runs typecheck, format check, lint, build, tests, and an
+  `npm pack --dry-run` package smoke.
+
 ## [0.3.0] - 2026-07-03
 
 ### Changed

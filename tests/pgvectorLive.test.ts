@@ -70,4 +70,45 @@ describe.skipIf(!PG)("pgvector (live DB)", () => {
     expect(hits[0].sourceUrl).toBe(url);
     expect(Number.isFinite(hits[0].score)).toBe(true);
   });
+
+  it("applies governance filters, lexical search, updates, and delete", { timeout: 30_000 }, async () => {
+    process.env.DATABASE_URL = PG;
+    process.env.OCTORYN_SCOUT_EMBEDDING_PROVIDER = "stub";
+    process.env.OCTORYN_SCOUT_VECTOR_DIM = String(dim);
+
+    vi.resetModules();
+    const store = (await import("../src/knowledge/vectorStore.js")).getVectorStore();
+    await store.init();
+    await store.upsertChunks([
+      {
+        ...chunk(`${docId}-filters`, `${url}/filters`, dim),
+        content: "alpha pgvector lexical governance fixture",
+        trustScore: 0.9
+      }
+    ]);
+
+    expect((await store.lexicalSearch("alpha governance", 5, { url: `${url}/filters` })).length).toBeGreaterThan(0);
+    expect(await store.setGovernanceStatusByUrl(`${url}/filters`, "denied")).toBeGreaterThan(0);
+    expect(
+      await store.search(
+        Array.from({ length: dim }, (_, i) => Math.sin(i + 1) * 0.1),
+        5,
+        { url: `${url}/filters` }
+      )
+    ).toHaveLength(0);
+    expect(
+      await store.search(
+        Array.from({ length: dim }, (_, i) => Math.sin(i + 1) * 0.1),
+        5,
+        {
+          url: `${url}/filters`,
+          includeUnapproved: true
+        }
+      )
+    ).toHaveLength(1);
+    await store.deleteByUrl(`${url}/filters`);
+    expect(
+      await store.lexicalSearch("alpha governance", 5, { url: `${url}/filters`, includeUnapproved: true })
+    ).toHaveLength(0);
+  });
 });

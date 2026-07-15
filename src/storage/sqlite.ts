@@ -88,6 +88,9 @@ export function getSqliteDb(config: AppConfig): Database.Database {
   db.pragma("journal_mode = WAL");
   db.pragma("busy_timeout = 5000");
   db.pragma("foreign_keys = ON");
+  if (config.sqliteVecExtension) {
+    db.loadExtension(resolve(config.sqliteVecExtension));
+  }
 
   connectionCache.set(path, db);
   return db;

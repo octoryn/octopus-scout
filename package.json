@@ -54,12 +54,14 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "coverage": "vitest run --coverage",
+    "verify": "npm run typecheck && npm run format:check && npm run lint && npm run build && npm test",
+    "release:smoke": "npm pack --dry-run",
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\"",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "playwright:install": "playwright install chromium",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run verify && npm run release:smoke"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.107.0",

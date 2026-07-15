@@ -37,3 +37,39 @@ jobs:
           # Lets the hermetic localhost-fixture tests run (SSRF guard blocks
           # private hosts by default). No external services are contacted.
           OCTORYN_SCOUT_ALLOW_PRIVATE_HOSTS: "true"
+
+      - name: Package smoke
+        run: npm run release:smoke
+
+  pgvector-live:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: octoryn
+          POSTGRES_PASSWORD: octoryn
+          POSTGRES_DB: octopus_scout
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U octoryn -d octopus_scout"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run pgvector live contract
+        run: npx vitest run tests/pgvectorLive.test.ts
+        env:
+          OCTORYN_TEST_PG_URL: postgres://octoryn:octoryn@127.0.0.1:5432/octopus_scout
+          OCTORYN_SCOUT_ALLOW_PRIVATE_HOSTS: "true"

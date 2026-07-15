@@ -18,10 +18,10 @@ Firecrawl 的定位是 **“把网页变成 LLM-ready 的 Markdown”**。Octopu
 
 ### 设计原则
 
-1. **优雅降级（degrade gracefully）** —— 没有 Redis/Postgres/API key 时，自动回落到内嵌 SQLite / 内存 / 确定性 stub，永不在 import 期抛错。单机零依赖（clone-and-run）即可跑通全链路。
+1. **优雅降级（degrade gracefully）** —— 没有 Redis/Postgres/API key 时，自动回落到内嵌 SQLite / 内存 / 确定性的离线提供方，永不在 import 期抛错。单机零依赖（clone-and-run）即可跑通全链路。
 2. **安全默认（secure by default）** —— SSRF 防护、内容大小/类型上限、robots 尊重、敏感域闸门默认开启。
 3. **治理优先（governance-first）** —— 信任评分、审计流水、人工审批、per-domain 策略是一等公民，而非事后补丁。
-4. **可插拔后端** —— 存储/向量库/embedding/限速 都是接口 + 多实现（SQLite ↔ File ↔ Postgres，stub ↔ Voyage/OpenAI，内存 ↔ Redis）。
+4. **可插拔后端** —— 存储/向量库/embedding/限速 都是接口 + 多实现（SQLite ↔ File ↔ Postgres，lexical ↔ Ollama/Voyage/OpenAI，内存 ↔ Redis）。
 5. **多入口同源** —— HTTP API、CLI、MCP server 共享同一条管道，行为一致。
 
 ---
@@ -89,7 +89,7 @@ flowchart TD
 - **队列**：BullMQ + Redis（可选）
 - **存储**：内嵌 SQLite（`better-sqlite3`，默认，单文件零依赖）/ 本地 JSON 文件（`file` 回落）/ PostgreSQL + pgvector（可选，设 `DATABASE_URL`）
 - **限速/事件锁**：`ioredis`（可选）/ 进程内（默认）
-- **embedding**：Voyage / OpenAI（凭 key）/ 确定性 stub（默认，离线）
+- **embedding**：确定性 lexical（默认，离线）/ 本地 Ollama / 托管 Voyage 或 OpenAI
 - **校验**：`zod`（所有外部输入在边界处解析）
 - **MCP**：`@modelcontextprotocol/sdk`
 - **测试**：Vitest（hermetic，本地 http fixture，临时目录）
@@ -161,7 +161,7 @@ flowchart TD
 
 ### R2 — 闭合 RAG 检索环路
 
-**实现**：真实 embedding（Voyage/OpenAI + stub 兜底）、向量库（File cosine / PG jsonb）、`/ingest`+`/search`、per-domain 治理策略、API-key 鉴权。
+**实现**：真实 embedding（Ollama/Voyage/OpenAI + lexical 兜底）、向量库（SQLite/File cosine / PG jsonb/pgvector）、`/ingest`+`/search`、per-domain 治理策略、API-key 鉴权。
 **做到**：`scrape → 治理 → 分块 → embedding → 向量库 → 带引用检索` 的完整 RAG 读写闭环。
 **解决**：Firecrawl 只给你 Markdown，向量库要自己搭；这里**内建检索**，开箱即用。
 
@@ -250,7 +250,7 @@ flowchart TD
 | **持久队列（真实 Redis）**            | ✅ `/jobs/ingest-site` 入队 → worker 处理 → `/jobs/:id` 返回 `completed`。                                                                               |
 | **分布式锁（真实 Redis）**            | ✅ 同 key 并发：仅一个 acquire，另一个 `acquired:false`；释放后可再获取；无 Redis 时降级。                                                               |
 | **MCP（built bin）**                  | ✅ `node dist/mcp.js` 的 `tools/list` 返回全部工具。                                                                                                     |
-| **混合检索（offline）**               | ✅ stub 向量下 vector/lexical/hybrid 对比验证：BM25 命中含关键词的 chunk，RRF 融合分数符合预期，heuristic rerank 确定性。                                |
+| **混合检索（offline）**               | ✅ lexical 向量下 vector/lexical/hybrid 对比验证：BM25 命中含关键词的 chunk，RRF 融合分数符合预期，heuristic rerank 确定性。                             |
 | **LLM 结构化抽取（OpenAI live）**     | ✅ `gpt-4o-mini` 按 JSON Schema 抽取 Espresso 页 → 合规 JSON。**Anthropic 路径用官方 SDK 实现，但无 Anthropic key 未 live 验。**                         |
 | **/map（real site）**                 | ✅ quotes.toscrape.com 发现 48 URL，search 过滤生效。                                                                                                    |
 | **抓取前 actions（real chromium）**   | ✅ click 执行运行时 JS → DOM 出现仅运行时才有的 marker；screenshot action 产出截图。                                                                     |
@@ -290,7 +290,7 @@ flowchart TD
 **当前局限（截至最新）**
 
 - pgvector 列维度在首次 upsert 时按向量长度锁定（换 embedding provider 需重建表）。
-- 未 live 验证（需外部 key/资源）：Voyage embedding、Anthropic 抽取、Cohere/Voyage rerank、大规模压测。
+- 未 live 验证（需外部 key/资源）：Voyage embedding、Anthropic 抽取、Cohere/Voyage rerank、大规模压测。Ollama 已通过模拟本地端点覆盖。
 - 反爬：仅 stealth-plus + BYO 代理 + JS 挑战等待；**顶级 bot 防护 / CAPTCHA 求解不保证**（有意，见 §8 与 docs/CAPTCHA.zh-CN.md）。
 
 **建议路线（剩余）**

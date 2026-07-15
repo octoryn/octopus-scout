@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { LexicalEmbeddingProvider, StubEmbeddingProvider } from "../src/knowledge/embedding.js";
+import {
+  LexicalEmbeddingProvider,
+  OllamaEmbeddingProvider,
+  StubEmbeddingProvider
+} from "../src/knowledge/embedding.js";
 import { cosineSimilarity } from "../src/knowledge/vectorStore.js";
 import type { EmbeddingProvider } from "../src/types.js";
 
@@ -208,5 +212,34 @@ describe("getEmbeddingProvider", () => {
     ]);
     expect(custom.name).toBe("custom-test");
     expect(custom.dimensions).toBe(3);
+  });
+});
+
+describe("OllamaEmbeddingProvider", () => {
+  it("calls the local Ollama embeddings endpoint and discovers dimensions", async () => {
+    const calls: unknown[] = [];
+    vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
+      calls.push(JSON.parse(String(init.body)));
+      return new Response(JSON.stringify({ embedding: [0.1, 0.2, 0.3] }), { status: 200 });
+    });
+    try {
+      const provider = new OllamaEmbeddingProvider("http://127.0.0.1:11434", "nomic-embed-text");
+      const vectors = await provider.embed(["hello"]);
+      expect(calls).toEqual([{ model: "nomic-embed-text", prompt: "hello" }]);
+      expect(vectors).toEqual([[0.1, 0.2, 0.3]]);
+      expect(provider.dimensions).toBe(3);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("surfaces a useful error when Ollama is unavailable", async () => {
+    vi.stubGlobal("fetch", async () => new Response("missing model", { status: 404, statusText: "Not Found" }));
+    try {
+      const provider = new OllamaEmbeddingProvider("http://127.0.0.1:11434", "missing");
+      await expect(provider.embed(["hello"])).rejects.toThrow(/Is Ollama running/);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

@@ -48,12 +48,17 @@ npm run mcp               # run from source via tsx (no build needed)
 
 ## 环境变量
 
-在没有任何配置时，服务器也能优雅降级（回退到本地
-数据目录与一个桩 (stub) 嵌入提供方）。常用变量：
+服务器默认会自动加载 `./.env`；即使没有任何配置，也能优雅降级（回退到本地
+数据目录与离线 lexical embedder）。常用变量：
 
 - `OCTORYN_SCOUT_DATA_DIR`——快照、审计日志以及本地向量库
   的存放位置（默认 `.octoryn-scout`）。
-- `OCTORYN_SCOUT_EMBEDDING_PROVIDER`——`stub`（默认）、`voyage` 或 `openai`。
+- `OCTORYN_SCOUT_ENV_FILE` / `OCTORYN_SCOUT_DISABLE_DOTENV`——选择或关闭
+  dotenv 自动加载。
+- `OCTORYN_SCOUT_EMBEDDING_PROVIDER`——`lexical`（默认）、`ollama`、`voyage`
+  或 `openai`；`stub` 仍作为 `lexical` 的废弃别名被接受。
+- `OCTORYN_SCOUT_OLLAMA_URL`——当选择 `ollama` 时使用的 Ollama 基础 URL
+  （默认 `http://127.0.0.1:11434`）。
 - `OPENAI_API_KEY`——当嵌入提供方为 `openai` 时必填。
 - `VOYAGE_API_KEY`——当嵌入提供方为 `voyage` 时必填。
 - `DATABASE_URL`——用于共享向量库的 Postgres（pgvector）连接字符串。
